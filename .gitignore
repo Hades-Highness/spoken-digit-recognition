@@ -1,0 +1,16 @@
+# Environnement virtuel
+.venv/
+
+# Cache Python
+__pycache__/
+*.pyc
+
+# Fichiers de configuration PyCharm
+.idea/
+
+# Dataset téléchargé localement
+Free-Spoken-Digit-Dataset/
+
+# Fichiers de poids PyTorch
+*.pth
+*.pt
