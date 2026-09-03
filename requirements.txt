@@ -1,6 +1,5 @@
 torch
 torchaudio
-hub
 librosa
 matplotlib
 seaborn
