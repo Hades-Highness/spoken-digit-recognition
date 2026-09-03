@@ -27,7 +27,7 @@ def evaluate_model(model, test_loader, device):
     cm = confusion_matrix(all_targets, all_preds)
     plt.figure(figsize=(8, 6))
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                xticklabels=range(10), yticklabels=range(10))
+                xticklabels=range(10), yticklabels=range(10)
     plt.xlabel('Predicted Digit')
     plt.ylabel('True Digit')
     plt.title('Confusion Matrix - Spoken Digit Recognition')

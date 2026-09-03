@@ -1,7 +1,9 @@
 torch
 torchaudio
+hub
 librosa
 matplotlib
 seaborn
 scikit-learn
 tqdm
+gradio
