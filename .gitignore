@@ -9,7 +9,7 @@ __pycache__/
 .idea/
 
 # Dataset téléchargé localement
-Free-Spoken-Digit-Dataset/
+Data/
 
 # Fichiers de poids PyTorch
 *.pth
