@@ -16,7 +16,7 @@ from torch.utils.data import Dataset, DataLoader, random_split
 
 # --- Audio / feature extraction constants -----------------------------------
 
-DATA_DIR = "data"
+DATA_DIR = "data/recordings"
 
 SAMPLE_RATE = 8000          # FSDD recordings are 8kHz mono
 TARGET_LENGTH = 8000        # pad/truncate every clip to exactly 1s (8000 samples)

@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from model import SpokenDigitCNN
+from dataset import train_loader, val_loader
 
 # Note : Walid when you finish dataset.py, uncomment the line below to import FSDDDataset
 # from dataset import FSDDDataset
@@ -84,4 +85,4 @@ def run_training(train_loader, val_loader, epochs=30, lr=0.001):
 
 
 if __name__ == "__main__":
-    print("Script train.py prêt. En attente du DataLoader de dataset.py pour lancer l'entraînement.")
+    run_training(train_loader, val_loader, epochs=30, lr=0.001)
