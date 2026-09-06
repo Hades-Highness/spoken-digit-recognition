@@ -4,10 +4,9 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from model import SpokenDigitCNN
-
 from dataset import train_loader, val_loader
 
-VERSION_NAME = "v2.1"  # Dynamic tag (e.g., v1_baseline, v2_0_robust, v2_1_aug)
+VERSION_NAME = "v2.2"  
 EPOCHS = 30
 LR = 0.001
 
@@ -56,7 +55,6 @@ def validate(model, dataloader, criterion, device):
 
 
 def save_training_history(version_name, train_accs, val_accs, train_losses, val_losses):
-    # 1. Save raw metrics to JSON
     history = {
         "train_acc": train_accs,
         "val_acc": val_accs,
@@ -66,7 +64,6 @@ def save_training_history(version_name, train_accs, val_accs, train_losses, val_
     with open(f"history_{version_name}.json", "w") as f:
         json.dump(history, f, indent=4)
 
-    # 2. Generate training curves plot
     epochs = range(1, len(train_accs) + 1)
     plt.figure(figsize=(12, 4))
 
@@ -93,13 +90,16 @@ def save_training_history(version_name, train_accs, val_accs, train_losses, val_
     print(f"\n[+] Results saved: curve_{version_name}.png and history_{version_name}.json")
 
 
-def run_training(train_loader, val_loader, version_name="v1_baseline", epochs=30, lr=0.001):
+def run_training(train_loader, val_loader, version_name="v2_2", epochs=30, lr=0.001):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"--- Training version [{version_name}] on: {device} ---")
 
     model = SpokenDigitCNN(num_classes=10).to(device)
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-4)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
+
+    # --- Cosine Annealing Scheduler (v2.2) ---
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
     best_val_acc = 0.0
 
     train_accs, val_accs = [], []
@@ -109,12 +109,16 @@ def run_training(train_loader, val_loader, version_name="v1_baseline", epochs=30
         train_loss, train_acc = train_one_epoch(model, train_loader, criterion, optimizer, device)
         val_loss, val_acc = validate(model, val_loader, criterion, device)
 
+        # Mettre à jour le LR à chaque époque
+        scheduler.step()
+
         train_losses.append(train_loss)
         train_accs.append(train_acc)
         val_losses.append(val_loss)
         val_accs.append(val_acc)
 
-        print(f"Epoch [{epoch}/{epochs}] | "
+        current_lr = scheduler.get_last_lr()[0]
+        print(f"Epoch [{epoch}/{epochs}] (LR: {current_lr:.6f}) | "
               f"Train Loss: {train_loss:.4f} - Train Acc: {train_acc:.2f}% | "
               f"Val Loss: {val_loss:.4f} - Val Acc: {val_acc:.2f}%")
 

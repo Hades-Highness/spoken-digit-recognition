@@ -1,11 +1,11 @@
 # 🎙️ FSDD - Spoken Digit Classification
 
-Spoken digit recognition pipeline (digits 0–9) based on the **FSDD** (*Free Spoken Digit Dataset*).  
-This project documents the transition from a naive baseline to a robust, **speaker-independent** CNN architecture.
+Spoken digit recognition pipeline (digits 0–9) based on the **FSDD** (*Free Spoken Digit Dataset*) and augmented with **AudioMNIST**.  
+This project documents the evolution from a naive baseline to a robust, **speaker-independent** CNN architecture.
 
 ---
 
-## 🛠️ Audio Technical Specifications
+## - Audio Technical Specifications
 
 * **Sampling Rate ($f_s$)**: 8,000 Hz (mono)
 * **Normalized Duration**: 1.0 second (8,000 samples)
@@ -17,57 +17,63 @@ This project documents the transition from a naive baseline to a robust, **speak
 
 ---
 
-## 📜 Version History & Project Evolution
+## - Version History & Project Evolution
 
-### 🔹 Version 1.0 — Baseline (Random Split)
-* **Goal**: Validate the core training pipeline with a basic CNN architecture.
-* **Data Split**: Random 80/20 train/val split mixing all speakers.
-* **Outcome**: High accuracy (~98%+), but severely **overfitted to speaker identity**. The model memorized specific voice signatures present in both train and val sets instead of learning phoneme geometry.
+### 🔹 Version 1.0 — Baseline (Random Split | 3,000 Audio Files)
+* **Dataset Scope**: Original FSDD dataset (6 speakers $\times$ 500 clips = 3,000 total audio samples).
+* **Data Split**: Naive 80/20 random split mixing all 6 speakers across train and validation sets.
+* **Outcome**: High accuracy (~98%+), but severely **overfitted to speaker identity**. The model memorized specific voice signatures present in both sets instead of learning digit phonemes.
 
 ---
 
-### 🔹 Version 2.0 — Speaker-Independent Split
+### 🔹 Version 2.0 — Speaker-Independent Split (3,000 Audio Files)
 * **Goal**: Evaluate true generalization on completely unseen voices.
-* **New Split (Strictly separated by speaker)**:
-  * **Train Set (4 speakers / 2,000 clips)**: `jackson`, `nicolas`, `theo`, `yweweler`
-  * **Validation Set (1 speaker / 500 clips)**: `lucas`
-  * **Test Set (1 speaker / 500 clips)**: `george`
-* **Observation**: Validation accuracy dropped sharply. The model failed to generalize to `lucas` because it relied heavily on the pitch and fundamental frequencies of the 4 training voices.
+* **Strict Speaker Separation**:
+  * **Train Set (4 speakers / 2,000 samples)**: `jackson`, `nicolas`, `theo`, `yweweler`
+  * **Validation Set (1 speaker / 500 samples)**: `lucas`
+  * **Test Set (1 speaker / 500 samples)**: `george`
+* **Observation**: Validation accuracy dropped sharply below 50%. The model failed to generalize to `lucas` due to reliance on fundamental frequencies ($F_0$) of the 4 training male voices.
 
 ---
 
 ### 🔹 Version 2.1 — Data Augmentation (Acoustic Perturbations)
-* **Goal**: Artificially expand acoustic diversity across the 4 training speakers.
+* **Goal**: Artificially expand acoustic diversity within the 4 training speakers.
 * **Techniques Introduced**:
-  * **Speed / Pitch Shift**: Dynamic linear interpolation ($\pm 10\%$).
   * **Additive White Noise**: Low-level Gaussian noise injection ($20\%$ chance).
-  * **SpecAugment**: Random frequency (`FrequencyMasking`) and time (`TimeMasking`) band erasure.
-* **Key Finding**: Overly aggressive pitch shifting distorted vocal formants, causing training instability. Augmentation parameters were calibrated down to preserve phoneme integrity.
+  * **SpecAugment**: Frequency (`FrequencyMasking`) and time (`TimeMasking`) band erasure.
 
 ---
 
-### 🔹 Version 2.2 — Speaker Invariance & Regularization
-* **Goal**: Neutralize speaker identity (timbre/pitch/volume) to force the network to focus strictly on digit phonemes.
-* **Major Upgrades**:
-  1. **Per-Sample Instance Standardization**:  
-     Zero-mean unit-variance scaling per spectrogram $X_{norm} = \frac{X - \mu}{\sigma + \epsilon}$ inside `dataset.py`.
-  2. **`InstanceNorm2d` Layers in `model.py`**:  
-     Replaced BatchNorm with Instance Normalization to strip speaker-specific style across convolutional feature maps.
-  3. **Advanced Regularization**:
-     * **Dropout (0.4)** before the linear classification head.
-     * **L2 Weight Decay ($10^{-4}$)** added to the Adam optimizer.
-     * **Learning Rate Scheduler**: `CosineAnnealingLR` for smooth convergence.
+### 🔹 Version 2.2 — Speaker Invariance & Regularization (Accuracy Bottleneck: 57.2%)
+* **Goal**: Strip speaker identity (timbre/pitch/volume) at the architectural level.
+* **Upgrades Introduced**:
+  1. **Per-Sample Instance Standardization**: Zero-mean unit-variance scaling per spectrogram $X_{norm} = \frac{X - \mu}{\sigma + \epsilon}$.
+  2. **`InstanceNorm2d` Layers**: Replaced BatchNorm in `model.py` to eliminate channel-wise speaker style.
+  3. **Regularization**: Increased `Dropout(0.4)`, added `weight_decay=1e-4` (L2), and integrated `CosineAnnealingLR`.
+* **Key Bottleneck Identified**: Despite all architectural optimizations, validation accuracy **capped out at 57.2%**. Dissecting the failure proved that 4 training speakers (all male) provided insufficient acoustic variance for the network to learn pitch-invariant features.
 
 ---
 
-## 📂 Project Structure
+### 🔹 Version 3.0 — Dataset Expansion & Gender Balancing (5,000 Audio Files)
+* **Goal**: Eliminate the voice-signature bottleneck by scaling training speaker diversity and balancing pitch distributions.
+* **Dataset Augmentation**: Integrated 2,000 audio samples from **4 female speakers** (`01`, `08`, `12`, `14`) from the **AudioMNIST** dataset.
+* **Updated Data Split**:
+  * **Train Set (8 speakers / 4,000 samples)**: 4 FSDD males + 4 AudioMNIST females (50/50 gender balance, broad $F_0$ spectrum).
+  * **Validation Set (1 speaker / 500 samples)**: `lucas` (FSDD — kept strictly identical to benchmark v2.0–v2.2 improvements).
+  * **Test Set (1 speaker / 500 samples)**: `george` (FSDD — unseen holdout).
+
+---
+
+## - Project Structure
 
 ```text
 .
 ├── data/
-│   └── recordings/      # Raw FSDD WAV files (e.g., 7_jackson_12.wav)
+│   └── recordings/      # Raw FSDD and AudioMNIST WAV files (e.g., 7_jackson_12.wav or 0_01_12.wav)
 ├── models_data/         # Saved model checkpoints (.pth) and loss/accuracy plots
 ├── dataset.py           # PyTorch Dataset pipeline & data augmentations
 ├── model.py             # SpokenDigitCNN architecture (InstanceNorm2d, Dropout)
 ├── train.py             # Training loop, evaluation, and plotting logic
+├── evaluate.py          # Evaluation loop and plotting logic
+├── app.py               # Web app for interactive evaluation
 └── README.md            # Project documentation

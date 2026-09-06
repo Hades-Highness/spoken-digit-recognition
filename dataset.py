@@ -1,4 +1,4 @@
-"""FSDD Dataset Pipeline — v2.1 (Calibrated Augmentation)."""
+"""FSDD Dataset Pipeline — v2.2 (Instance Standardization & Calibrated Augmentation)."""
 
 import os
 import glob
@@ -57,7 +57,7 @@ class FSDDDataset(Dataset):
             n_mels=N_MELS,
         )
 
-        # Light SpecAugment (very narrow masks)
+        # Light SpecAugment (narrow masks)
         self.freq_mask = T.FrequencyMasking(freq_mask_param=4)
         self.time_mask = T.TimeMasking(time_mask_param=2)
 
@@ -75,8 +75,14 @@ class FSDDDataset(Dataset):
             noise = torch.randn_like(waveform) * 0.005
             waveform = waveform + noise
 
+        # Extract Mel-Spectrogram
         mel_spec = self.mel_transform(waveform.unsqueeze(0))
         mel_spec = torch.log(mel_spec + 1e-9)
+
+        # --- Instance Standardization (v2.2 Addition) ---
+        mean = mel_spec.mean()
+        std = mel_spec.std()
+        mel_spec = (mel_spec - mean) / (std + 1e-6)
 
         # 2. Subtle SpecAugment (30% chance)
         if self.is_train and torch.rand(1).item() < 0.30:
