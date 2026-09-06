@@ -1,12 +1,17 @@
 import torch
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.metrics import classification_report, confusion_matrix
 from model import SpokenDigitCNN
+from dataset import test_loader
+from sklearn.metrics import classification_report, confusion_matrix
 
-def evaluate_model(model, test_loader, device):
-    """Evaluate the model on the test dataset and plot the confusion matrix."""
+def evaluate():
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"--- Evaluation sur : {device} ---")
+    
+    # Chargement du modèle et des poids
+    model = SpokenDigitCNN(num_classes=10).to(device)
+    model.load_state_dict(torch.load("best_model.pth"))
     model.eval()
+
     all_preds = []
     all_targets = []
 
@@ -14,26 +19,16 @@ def evaluate_model(model, test_loader, device):
         for inputs, targets in test_loader:
             inputs, targets = inputs.to(device), targets.to(device)
             outputs = model(inputs)
-            _, preds = torch.max(outputs, 1)
-
+            _, preds = outputs.max(1)
+            
             all_preds.extend(preds.cpu().numpy())
             all_targets.extend(targets.cpu().numpy())
 
-    # 1. Print metrics (Precision, Recall, F1-Score)
-    print("\n--- Classification Report ---")
-    print(classification_report(all_targets, all_preds, target_names=[str(i) for i in range(10)], digits=4))
-
-    # 2. Generate and save confusion matrix
-    cm = confusion_matrix(all_targets, all_preds)
-    plt.figure(figsize=(8, 6))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                xticklabels=range(10), yticklabels=range(10))
-    plt.xlabel('Predicted Digit')
-    plt.ylabel('True Digit')
-    plt.title('Confusion Matrix - Spoken Digit Recognition')
-    plt.tight_layout()
-    plt.savefig('confusion_matrix.png')
-    plt.show()
+    print("\n--- RAPPORT DE CLASSIFICATION (TEST SET) ---")
+    print(classification_report(all_targets, all_preds, digits=4))
+    
+    print("--- MATRICE DE CONFUSION ---")
+    print(confusion_matrix(all_targets, all_preds))
 
 if __name__ == "__main__":
-    print("Script evaluate.py is ready to receive the model and TestLoader.")
+    evaluate()
