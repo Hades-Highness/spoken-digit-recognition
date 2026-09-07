@@ -1,4 +1,4 @@
-"""FSDD Dataset Pipeline — v2.2 (Instance Standardization & Calibrated Augmentation)."""
+"""FSDD + AudioMNIST Dataset Pipeline — v3.0 (Dataset Expansion & Gender Balancing)."""
 
 import os
 import glob
@@ -15,7 +15,8 @@ N_FFT = 512
 HOP_LENGTH = 256
 BATCH_SIZE = 32
 
-TRAIN_SPEAKERS = ['jackson', 'nicolas', 'theo', 'yweweler']
+# 8 locuteurs d'entraînement (4 hommes FSDD + 4 femmes AudioMNIST)
+TRAIN_SPEAKERS = ['jackson', 'nicolas', 'theo', 'yweweler', '12', '26', '28', '47']
 VAL_SPEAKERS   = ['lucas']
 TEST_SPEAKERS  = ['george']
 
@@ -79,7 +80,7 @@ class FSDDDataset(Dataset):
         mel_spec = self.mel_transform(waveform.unsqueeze(0))
         mel_spec = torch.log(mel_spec + 1e-9)
 
-        # --- Instance Standardization (v2.2 Addition) ---
+        # --- Instance Standardization ---
         mean = mel_spec.mean()
         std = mel_spec.std()
         mel_spec = (mel_spec - mean) / (std + 1e-6)
@@ -111,3 +112,10 @@ test_dataset  = FSDDDataset(test_files, is_train=False)
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 val_loader   = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
 test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
+
+if __name__ == "__main__":
+    print(f"[v3.0 Data Split Summary]")
+    print(f" Train Samples : {len(train_dataset)} (8 locuteurs)")
+    print(f" Val Samples   : {len(val_dataset)} (1 locuteur: lucas)")
+    print(f" Test Samples  : {len(test_dataset)} (1 locuteur: george)")
+    print(f" Total Audios  : {len(train_dataset) + len(val_dataset) + len(test_dataset)}")

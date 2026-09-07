@@ -12,5 +12,4 @@ __pycache__/
 data/
 
 # Fichiers de poids PyTorch
-*.pth
 *.pt

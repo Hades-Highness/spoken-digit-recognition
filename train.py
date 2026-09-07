@@ -6,7 +6,7 @@ import torch.optim as optim
 from model import SpokenDigitCNN
 from dataset import train_loader, val_loader
 
-VERSION_NAME = "v2.2"  
+VERSION_NAME = "v3"  
 EPOCHS = 30
 LR = 0.001
 

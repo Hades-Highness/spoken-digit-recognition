@@ -55,7 +55,7 @@ def evaluate_version(model_path, version_label):
 
 if __name__ == "__main__":
     # Command line usage: python evaluate_single.py <model_path> <version_label>
-    model_file = "best_model_v2-2.pth"
-    version_tag = "v2.2"
+    model_file = "best_model_v3.pth"
+    version_tag = "v3"
 
     evaluate_version(model_file, version_tag)
