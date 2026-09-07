@@ -32,7 +32,7 @@ This project documents the evolution from a naive baseline to a robust, **speake
   * **Train Set (4 speakers / 2,000 samples)**: `jackson`, `nicolas`, `theo`, `yweweler`
   * **Validation Set (1 speaker / 500 samples)**: `lucas`
   * **Test Set (1 speaker / 500 samples)**: `george`
-* **Observation**: Validation accuracy dropped sharply below 50%. The model failed to generalize to `lucas` due to reliance on fundamental frequencies ($F_0$) of the 4 training male voices.
+* **Observation**: Validation accuracy dropped sharply below 60%. The model failed to generalize to `lucas` due to reliance on fundamental frequencies ($F_0$) of the 4 training male voices.
 
 ---
 
@@ -41,6 +41,7 @@ This project documents the evolution from a naive baseline to a robust, **speake
 * **Techniques Introduced**:
   * **Additive White Noise**: Low-level Gaussian noise injection ($20\%$ chance).
   * **SpecAugment**: Frequency (`FrequencyMasking`) and time (`TimeMasking`) band erasure.
+  * **Observation**: Validation accuracy dropped sharply below 50%
 
 ---
 
@@ -82,8 +83,8 @@ This project documents the evolution from a naive baseline to a robust, **speake
 | Version | Best Val Acc | Training Curves |
 | :--- | :---: | :--- |
 | **v1.0** | **98.2%** | ![v1 Curves](models_data/model_v1/curve_v1.png) |
-| **v2.0** | **~48.0%** | ![v2.0 Curves](models_data/model_v2/curve_v2.png) |
-| **v2.1** | **~52.0%** | ![v2.1 Curves](models_data/model_v2.1/curve_v2.1.png) |
+| **v2.0** | **61.1%** | ![v2.0 Curves](models_data/model_v2/curve_v2.png) |
+| **v2.1** | **~54.0%** | ![v2.1 Curves](models_data/model_v2.1/curve_v2.1.png) |
 | **v2.2** | **57.2%** | ![v2.2 Curves](models_data/model_v2.2/curve_v2.2.png) |
 | **v3.0** | **~74.0%** | ![v3.0 Curves](models_data/model_v3/curve_v3.png) |
 | **v3.1** | **82.5%** | ![v3.1 Curves](models_data/model_v3.1/curve_v3.1.png) |
