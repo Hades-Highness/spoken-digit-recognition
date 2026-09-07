@@ -5,7 +5,7 @@ This project documents the evolution from a naive baseline to a robust, **speake
 
 ---
 
-## - Audio Technical Specifications
+## 📐 Audio Technical Specifications
 
 * **Sampling Rate ($f_s$)**: 8,000 Hz (mono)
 * **Normalized Duration**: 1.0 second (8,000 samples)
@@ -17,7 +17,7 @@ This project documents the evolution from a naive baseline to a robust, **speake
 
 ---
 
-## - Version History & Project Evolution
+## 📈 Version History & Project Evolution
 
 ### 🔹 Version 1.0 — Baseline (Random Split | 3,000 Audio Files)
 * **Dataset Scope**: Original FSDD dataset (6 speakers $\times$ 500 clips = 3,000 total audio samples).
@@ -64,16 +64,41 @@ This project documents the evolution from a naive baseline to a robust, **speake
 
 ---
 
-## - Project Structure
+### 🔹 Version 3.1 — CUDA Pipeline & Magnet Class Dissolution (Accuracy Jump: 82.5%)
+* **Goal**: Offload heavy computational processing to GPU, eliminate speed bottlenecks, and resolve phoneme ambiguity across magnet classes (e.g., '3' and '5').
+* **Upgrades Introduced**:
+  1. **CUDA Batch Processing Engine**: Moved Mel-Spectrogram extraction and all acoustic transformations directly onto GPU VRAM inside `train.py` (CPU `dataset.py` acts solely as a fast raw tensor loader).
+  2. **On-the-Fly GPU Augmentations**:
+     * **Pitch Shift**: Random variation ($\pm 2$ semitones) via `torchaudio.functional.pitch_shift` (30% probability).
+     * **Time Shift**: Circular tensor rolling ($\pm 100$ ms) on GPU (30% probability).
+     * **SpecAugment**: Dynamic time and frequency masking on VRAM tensors.
+  3. **Magnet Class Dissolution**: Applied `CrossEntropyLoss(label_smoothing=0.1)` to penalize overconfident misclassifications on close phonetic bounds.
+* **Outcome**: Peak validation accuracy jumped to **82.5%**, establishing stable convergence with high training speed.
+
+---
+
+## 📊 Training Curves & Performance Progression
+
+| Version | Best Val Acc | Training Curves |
+| :--- | :---: | :--- |
+| **v2.2** | **57.2%** | ![v2.2 Curves](models_data/model_v2.2/curve_v2.2.png) |
+| **v3.0** | **~74.0%** | ![v3.0 Curves](models_data/model_v3.0/curve_v3.0.png) |
+| **v3.1** | **82.5%** | ![v3.1 Curves](models_data/model_v3.1/curve_v3.1.png) |
+
+---
+
+## 📁 Project Structure
 
 ```text
 .
 ├── data/
-│   └── recordings/      # Raw FSDD and AudioMNIST WAV files (e.g., 7_jackson_12.wav or 0_01_12.wav)
-├── models_data/         # Saved model checkpoints (.pth) and loss/accuracy plots
-├── dataset.py           # PyTorch Dataset pipeline & data augmentations
-├── model.py             # SpokenDigitCNN architecture (InstanceNorm2d, Dropout)
-├── train.py             # Training loop, evaluation, and plotting logic
-├── evaluate.py          # Evaluation loop and plotting logic
-├── app.py               # Web app for interactive evaluation
-└── README.md            # Project documentation
+│   ├── recordings/          # Raw FSDD and AudioMNIST WAV files
+│   └── metadata.py          # Audio metadata (speaker, gender, age, etc.)
+├── models/                  # Versioned checkpoints
+├── models_data/             # history files and visual plots
+├── dataset.py               # Fast raw waveform CPU DataLoader
+├── model.py                 # SpokenDigitCNN architecture (InstanceNorm2d, Dropout)
+├── train.py                 # GPU-accelerated training pipeline & augmentations
+├── evaluate.py              # Confusion matrix & classification report exporter
+├── app.py                   # Interactive evaluation interface
+└── README.md                # Project documentation

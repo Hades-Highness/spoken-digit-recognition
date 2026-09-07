@@ -3,15 +3,21 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import torchaudio.transforms as T
 from sklearn.metrics import classification_report, confusion_matrix
 
 from model import SpokenDigitCNN
-from dataset import test_loader  # Loads the held-out test set
+from dataset import test_loader
 
 
 def evaluate_version(model_path, version_label):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"--- Evaluating model [{version_label}] on: {device} ---")
+
+    # Module de transformation Audio -> MelSpectrogram GPU
+    mel_transform = T.MelSpectrogram(
+        sample_rate=8000, n_fft=512, hop_length=256, n_mels=64
+    ).to(device)
 
     # 1. Load Model Weights
     model = SpokenDigitCNN(num_classes=10).to(device)
@@ -20,8 +26,19 @@ def evaluate_version(model_path, version_label):
 
     all_preds, all_targets = [], []
     with torch.no_grad():
-        for inputs, targets in test_loader:
-            inputs, targets = inputs.to(device), targets.to(device)
+        for waveforms, targets in test_loader:
+            waveforms, targets = waveforms.to(device), targets.to(device)
+            
+            # Prétraitement GPU identique au Val Set (SANS augmentation)
+            mel_specs = mel_transform(waveforms)
+            mel_specs = torch.log(mel_specs + 1e-9)
+            
+            mean = mel_specs.mean(dim=(-2, -1), keepdim=True)
+            std = mel_specs.std(dim=(-2, -1), keepdim=True)
+            mel_specs = (mel_specs - mean) / (std + 1e-6)
+            
+            inputs = mel_specs.unsqueeze(1)
+
             outputs = model(inputs)
             _, preds = outputs.max(1)
             all_preds.extend(preds.cpu().numpy())
@@ -54,8 +71,7 @@ def evaluate_version(model_path, version_label):
 
 
 if __name__ == "__main__":
-    # Command line usage: python evaluate_single.py <model_path> <version_label>
-    model_file = "best_model_v3.pth"
-    version_tag = "v3"
+    model_file = "best_model_v3.1.pth"
+    version_tag = "v3.1"
 
     evaluate_version(model_file, version_tag)
