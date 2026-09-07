@@ -81,8 +81,11 @@ This project documents the evolution from a naive baseline to a robust, **speake
 
 | Version | Best Val Acc | Training Curves |
 | :--- | :---: | :--- |
+| **v1.0** | **98.2%** | ![v1 Curves](models_data/model_v1/curve_v1.png) |
+| **v2.0** | **~48.0%** | ![v2.0 Curves](models_data/model_v2/curve_v2.png) |
+| **v2.1** | **~52.0%** | ![v2.1 Curves](models_data/model_v2.1/curve_v2.1.png) |
 | **v2.2** | **57.2%** | ![v2.2 Curves](models_data/model_v2.2/curve_v2.2.png) |
-| **v3.0** | **~74.0%** | ![v3.0 Curves](models_data/model_v3.0/curve_v3.0.png) |
+| **v3.0** | **~74.0%** | ![v3.0 Curves](models_data/model_v3/curve_v3.png) |
 | **v3.1** | **82.5%** | ![v3.1 Curves](models_data/model_v3.1/curve_v3.1.png) |
 
 ---
