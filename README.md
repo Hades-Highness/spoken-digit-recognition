@@ -109,6 +109,30 @@ This project documents the step-by-step engineering progression from a naive spe
 
 ---
 
+## 📊 Model Progression Benchmark
+
+To evaluate true out-of-distribution generalization, all historical model checkpoints were benchmarked on a strictly isolated, speaker-independent test set comprising 5 unseen speakers (`01`, `02`, `07`, `03`, `04` — ~2,500 audio samples).
+
+![Model Progression Benchmark](models_data/benchmark_comparison.png)
+
+| Version | Setup / Description | Sample Rate | Input Format | Test Accuracy |
+| :--- | :--- | :---: | :---: | :---: |
+| **v1.0** | Baseline (Random Split) | 8 kHz | 1-Ch Log-Mel | **66.5%** |
+| **v2.0** | Speaker Split (FSDD) | 8 kHz | 1-Ch Log-Mel | **54.3%** |
+| **v2.1** | SpecAugment & Noise Injection | 8 kHz | 1-Ch Log-Mel | **48.0%** |
+| **v2.2** | InstanceNorm2d Architecture | 8 kHz | 1-Ch Log-Mel | **57.1%** |
+| **v3.0** | AudioMNIST Expansion (60/40) | 8 kHz | 1-Ch Log-Mel | **75.9%** |
+| **v3.1** | GPU-Accelerated Augmentations | 8 kHz | 1-Ch Log-Mel | **89.5%** |
+| **v3.2** | 3-Channel Spectrograms | 8 kHz | 3-Ch (Log-Mel + Deltas) | **95.4%** |
+| **v4.0** | High-Res AudioMNIST | 16 kHz | 3-Ch (Log-Mel + Deltas) | **99.8%** |
+
+### 🔑 Key Takeaways & Progression Analysis
+
+* **Domain Shift & Overfitting (v1.0 – v2.2):** Models trained exclusively on small single-speaker datasets (FSDD) struggled to generalize when tested against completely unseen speakers.
+* **Speaker Diversity (v3.0):** Expanding the dataset to include multi-speaker data immediately boosted unseen test performance from **57.1%** to **75.9%**.
+* **Feature Engineering & Augmentations (v3.1 – v3.2):** Implementing GPU-side dynamic augmentations and 3-channel representations (Log-Mel + Delta + Delta-Delta) increased accuracy by **+19.5%** at 8 kHz.
+* **High-Resolution Audio (v4.0):** Doubling the sampling rate to 16 kHz provided richer acoustic resolution, pushing performance to a peak **99.8%** accuracy.
+
 ## 📊 Performance & Progression Summary
 
 | Version | Dataset Composition | Sampling Rate | Best Val Acc | Test Acc | Confusion Matrix / Curves |
