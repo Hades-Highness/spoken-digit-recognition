@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import torchaudio.transforms as T
+import torchaudio.functional as FA
 from sklearn.metrics import classification_report, confusion_matrix
 
 from model import SpokenDigitCNN
@@ -14,12 +15,12 @@ def evaluate_version(model_path, version_label):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"--- Evaluating model [{version_label}] on: {device} ---")
 
-    # Module de transformation Audio -> MelSpectrogram GPU
+    # Paramètres v4.0 @ 16 kHz
     mel_transform = T.MelSpectrogram(
-        sample_rate=8000, n_fft=512, hop_length=256, n_mels=64
+        sample_rate=16000, n_fft=1024, hop_length=256, n_mels=64
     ).to(device)
 
-    # 1. Load Model Weights
+    # 1. Chargement des poids du modèle v4.0
     model = SpokenDigitCNN(num_classes=10).to(device)
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.eval()
@@ -29,26 +30,31 @@ def evaluate_version(model_path, version_label):
         for waveforms, targets in test_loader:
             waveforms, targets = waveforms.to(device), targets.to(device)
             
-            # Prétraitement GPU identique au Val Set (SANS augmentation)
+            # Prétraitement GPU v4.0 : 3 canaux (Log-Mel, Delta, Delta-Delta)
             mel_specs = mel_transform(waveforms)
-            mel_specs = torch.log(mel_specs + 1e-9)
+            log_mel = torch.log(mel_specs + 1e-9)
             
-            mean = mel_specs.mean(dim=(-2, -1), keepdim=True)
-            std = mel_specs.std(dim=(-2, -1), keepdim=True)
-            mel_specs = (mel_specs - mean) / (std + 1e-6)
+            delta = FA.compute_deltas(log_mel)
+            delta_delta = FA.compute_deltas(delta)
             
-            inputs = mel_specs.unsqueeze(1)
+            inputs = torch.stack([log_mel, delta, delta_delta], dim=1)
+            
+            # Instance Standardization
+            mean = inputs.mean(dim=(-2, -1), keepdim=True)
+            std = inputs.std(dim=(-2, -1), keepdim=True)
+            inputs = (inputs - mean) / (std + 1e-6)
 
             outputs = model(inputs)
             _, preds = outputs.max(1)
             all_preds.extend(preds.cpu().numpy())
             all_targets.extend(targets.cpu().numpy())
 
-    # 2. Generate and Save Confusion Matrix
+    # 2. Génération et sauvegarde de la matrice de confusion
     cm = confusion_matrix(all_targets, all_preds)
-    plt.figure(figsize=(7, 6))
-    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", cbar=False)
-    plt.title(f"Confusion Matrix - {version_label}")
+    plt.figure(figsize=(8, 7))
+    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", cbar=False,
+                xticklabels=range(10), yticklabels=range(10))
+    plt.title(f"Confusion Matrix - {version_label} (Test Set)")
     plt.xlabel("Predicted Digit")
     plt.ylabel("True Digit")
     plt.tight_layout()
@@ -57,7 +63,7 @@ def evaluate_version(model_path, version_label):
     plt.savefig(plot_filename, dpi=300)
     plt.close()
 
-    # 3. Save Text Classification Report
+    # 3. Exporter le rapport de classification
     report = classification_report(all_targets, all_preds, digits=4)
     report_filename = f"report_{version_label}.txt"
     with open(report_filename, "w") as f:
@@ -71,7 +77,7 @@ def evaluate_version(model_path, version_label):
 
 
 if __name__ == "__main__":
-    model_file = "best_model_v3.1.pth"
-    version_tag = "v3.1"
+    model_file = "best_model_v4.0.pth"
+    version_tag = "v4.0"
 
     evaluate_version(model_file, version_tag)

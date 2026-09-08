@@ -7,63 +7,68 @@ import torchaudio.transforms as T
 import torchaudio.functional as FA
 
 from model import SpokenDigitCNN
-from dataset import train_loader, val_loader
+from dataset import train_loader, val_loader, test_loader
 
-VERSION_NAME = "v3.1"  
-EPOCHS = 30
+VERSION_NAME = "v4.0"
+EPOCHS = 35
 LR = 0.001
 
 
 def get_gpu_transforms(device):
-    """Initialise les transformations PyTorch sur le GPU."""
+    """Initialise les transformations PyTorch sur GPU adaptées au 16 kHz."""
+    # hop_length=256 et n_fft=1024 pour 16kHz (produit ~63 frames temporelles)
     mel_transform = T.MelSpectrogram(
-        sample_rate=8000, n_fft=512, hop_length=256, n_mels=64
+        sample_rate=16000, n_fft=1024, hop_length=256, n_mels=64
     ).to(device)
-    
-    freq_mask = T.FrequencyMasking(freq_mask_param=8).to(device)
-    time_mask = T.TimeMasking(time_mask_param=6).to(device)
-    
+
+    freq_mask = T.FrequencyMasking(freq_mask_param=10).to(device)
+    time_mask = T.TimeMasking(time_mask_param=12).to(device)
+
     return mel_transform, freq_mask, time_mask
 
 
 def process_batch_gpu(waveforms, mel_transform, freq_mask, time_mask, device, is_train=True):
-    """Transforme les ondes sonores [B, 8000] en Spectrogrammes [B, 1, 64, 32] directement sur GPU."""
+    """Transforme les ondes sonores [B, 16000] en tenseurs 3 canaux [B, 3, 64, 63] sur GPU."""
     waveforms = waveforms.to(device)
 
     if is_train:
-        # 1. Pitch Shift GPU (30% chance)
+        # 1. Pitch Shift GPU (30% chance) @ 16kHz
         if torch.rand(1).item() < 0.30:
             n_steps = torch.randint(-2, 3, (1,)).item()
             if n_steps != 0:
-                waveforms = FA.pitch_shift(waveforms, sample_rate=8000, n_steps=n_steps)
+                waveforms = FA.pitch_shift(waveforms, sample_rate=16000, n_steps=n_steps)
 
-        # 2. Time Shift GPU (30% chance)
+        # 2. Time Shift GPU (30% chance) - max 100ms (1600 samples)
         if torch.rand(1).item() < 0.30:
-            shift = torch.randint(-800, 800, (1,)).item()
+            shift = torch.randint(-1600, 1600, (1,)).item()
             waveforms = torch.roll(waveforms, shifts=shift, dims=1)
 
         # 3. Injection de bruit blanc GPU (20% chance)
         if torch.rand(1).item() < 0.20:
             waveforms = waveforms + torch.randn_like(waveforms) * 0.005
 
-    # Extraction Mel-Spectrogramme
+    # Extraction Log-Mel Spectrogramme (Canal 1)
     mel_specs = mel_transform(waveforms)
-    mel_specs = torch.log(mel_specs + 1e-9)
+    log_mel = torch.log(mel_specs + 1e-9)
 
-    # Instance Standardization globale par batch
-    mean = mel_specs.mean(dim=(-2, -1), keepdim=True)
-    std = mel_specs.std(dim=(-2, -1), keepdim=True)
-    mel_specs = (mel_specs - mean) / (std + 1e-6)
+    # Calcul des Deltas (Canal 2) et Delta-Deltas (Canal 3)
+    delta = FA.compute_deltas(log_mel)
+    delta_delta = FA.compute_deltas(delta)
 
-    # Ajout du canal d'entrée pour la Conv2D -> [B, 1, 64, 32]
-    mel_specs = mel_specs.unsqueeze(1)
+    # Empilement des 3 canaux -> [B, 3, 64, 63]
+    x_3ch = torch.stack([log_mel, delta, delta_delta], dim=1)
+
+    # Instance Standardization
+    mean = x_3ch.mean(dim=(-2, -1), keepdim=True)
+    std = x_3ch.std(dim=(-2, -1), keepdim=True)
+    x_3ch = (x_3ch - mean) / (std + 1e-6)
 
     # SpecAugment
     if is_train and torch.rand(1).item() < 0.30:
-        mel_specs = freq_mask(mel_specs)
-        mel_specs = time_mask(mel_specs)
+        x_3ch = freq_mask(x_3ch)
+        x_3ch = time_mask(x_3ch)
 
-    return mel_specs
+    return x_3ch
 
 
 def train_one_epoch(model, dataloader, criterion, optimizer, device, transforms):
@@ -75,8 +80,6 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, transforms)
 
     for waveforms, targets in dataloader:
         targets = targets.to(device)
-        
-        # Transformation Audio -> Spectrogramme sur GPU
         inputs = process_batch_gpu(waveforms, mel_transform, freq_mask, time_mask, device, is_train=True)
 
         optimizer.zero_grad()
@@ -103,10 +106,8 @@ def validate(model, dataloader, criterion, device, transforms):
     with torch.no_grad():
         for waveforms, targets in dataloader:
             targets = targets.to(device)
-            
-            # Transformation Audio -> Spectrogramme sur GPU (SANS Augmentation)
             inputs = process_batch_gpu(waveforms, mel_transform, freq_mask, time_mask, device, is_train=False)
-            
+
             outputs = model(inputs)
             loss = criterion(outputs, targets)
 
@@ -154,14 +155,13 @@ def save_training_history(version_name, train_accs, val_accs, train_losses, val_
     print(f"\n[+] Results saved: curve_{version_name}.png and history_{version_name}.json")
 
 
-def run_training(train_loader, val_loader, version_name="v3_1", epochs=30, lr=0.001):
+def run_training(train_loader, val_loader, test_loader, version_name="v4.0_final", epochs=35, lr=0.001):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"--- Training version [{version_name}] on: {device} ---")
 
     transforms = get_gpu_transforms(device)
     model = SpokenDigitCNN(num_classes=10).to(device)
-    
-    # Label Smoothing pour contrer les classes aimants (3 et 5)
+
     criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
 
@@ -196,6 +196,12 @@ def run_training(train_loader, val_loader, version_name="v3_1", epochs=30, lr=0.
     print("\nTraining completed successfully!")
     save_training_history(version_name, train_accs, val_accs, train_losses, val_losses)
 
+    # Évaluation ultime sur le Test Set (Locuteurs totalement invisibles)
+    print("\n--- TEST SET EVALUATION (5 Isolated Speakers) ---")
+    model.load_state_dict(torch.load(f"best_model_{version_name}.pth"))
+    test_loss, test_acc = validate(model, test_loader, criterion, device, transforms)
+    print(f">> TEST ACCURACY : {test_acc:.2f}% (Loss: {test_loss:.4f}) <<")
+
 
 if __name__ == "__main__":
-    run_training(train_loader, val_loader, version_name=VERSION_NAME, epochs=EPOCHS, lr=LR)
+    run_training(train_loader, val_loader, test_loader, version_name=VERSION_NAME, epochs=EPOCHS, lr=LR)

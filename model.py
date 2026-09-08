@@ -5,9 +5,9 @@ class SpokenDigitCNN(nn.Module):
     def __init__(self, num_classes=10):
         super(SpokenDigitCNN, self).__init__()
 
-        # Bloc Convolutif 1 : Extraction de motifs + Instance Normalization (Invariant au locuteur)
+        # Bloc Convolutif 1 : 3 canaux en entrée (Log-Mel + Delta + Delta-Delta)
         self.conv1 = nn.Sequential(
-            nn.Conv2d(in_channels=1, out_channels=16, kernel_size=3, padding=1),
+            nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, padding=1),
             nn.InstanceNorm2d(16, affine=True),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2)
@@ -29,7 +29,7 @@ class SpokenDigitCNN(nn.Module):
             nn.MaxPool2d(kernel_size=2, stride=2)
         )
 
-        # Tête de classification avec régularisation renforcée
+        # Tête de classification (AdaptiveAvgPool2d verrouille la sortie en 4x4)
         self.classifier = nn.Sequential(
             nn.AdaptiveAvgPool2d((4, 4)),
             nn.Flatten(),
@@ -49,7 +49,8 @@ class SpokenDigitCNN(nn.Module):
 
 if __name__ == "__main__":
     model = SpokenDigitCNN()
-    dummy_input = torch.randn(8, 1, 64, 32)
+    # Entrée v4.0 : [Batch, 3 canaux, 64 mels, 63 frames] @ 16kHz
+    dummy_input = torch.randn(8, 3, 64, 63)
     output = model(dummy_input)
-    print("Architecture v2.2 créée avec succès !")
+    print("Architecture v4.0 Master vérifiée !")
     print("Forme de la sortie (Batch size, Classes) :", output.shape)
