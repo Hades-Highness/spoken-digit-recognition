@@ -120,7 +120,7 @@ This project documents the step-by-step engineering progression from a naive spe
 | **v3.0** | 60% FSDD / 40% AudioMNIST | 8 kHz | **73.2%** | **61.80%** | ![v3.0 Curves](models_data/model_v3/curve_v3.png) |
 | **v3.1** | 60% FSDD / 40% AudioMNIST (+ GPU Aug) | 8 kHz | **82.5%** | **78.40%** | ![v3.1 Curves](models_data/model_v3.1/curve_v3.1.png) |
 | **v3.2** | 60% FSDD / 40% AudioMNIST (+ 3-Ch Deltas) | 8 kHz | **82.4%** | **85.00%** | ![v3.2 Curves](models_data/model_v3.2/curve_v3.2.png) |
-| **v4.0** | 100% AudioMNIST (16 kHz High-Res) | 16 kHz | **93.5%** | **99.72%** | ![v4.0 CM](cm_v4.0.png) |
+| **v4.0** | 100% AudioMNIST (16 kHz High-Res) | 16 kHz | **93.5%** | **99.72%** | ![v4.0 CM](models_data/model_v4/curve_v4.png) |
 
 ---
 
