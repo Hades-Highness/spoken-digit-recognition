@@ -1,5 +1,4 @@
-# DigitSense - Spoken Digit Reconigition
-
+# DigitSense - Spoken Digit Reconignition 
 
 <p align="center">
   <a href="https://github.com/Hades-Highness/spoken-digit-recognition/releases/tag/V4.0.0">
