@@ -1,4 +1,4 @@
-# 🎙️ FSDD & AudioMNIST - Spoken Digit Classification
+# 🎙️ DigitSense - Spoken Digit Reconigition
 
 Spoken digit recognition pipeline (digits 0–9) evolving from the **FSDD** (*Free Spoken Digit Dataset*) to **AudioMNIST**.  
 This project documents the step-by-step engineering progression from a naive speaker-memorizing baseline to a production-ready, **speaker-independent** CNN architecture achieving **99.72% test accuracy**.
@@ -104,7 +104,7 @@ This project documents the step-by-step engineering progression from a naive spe
   1. **16 kHz Sampling Rate Pipeline**: Doubled audio sampling rate ($f_s = 16,000$ Hz, `n_fft = 1024`, `hop_length = 256`) to capture crisp high-frequency acoustic details and formant transitions.
   2. **Full AudioMNIST Scaling**: Scaled training volume across dozens of male and female speakers spanning varied accents, ages, and pitches.
   3. **Strict Multi-Speaker Holdout Evaluation**: Tested on **5 completely unseen test speakers** (2,500 unseen clips).
-* **Outcome**: Achieved a near-perfect **99.72% test accuracy** (2,493 / 2,500 correct predictions) with only 7 misclassifications across the entire test set.
+* **Outcome**: Achieved a near-perfect **99.82% test accuracy** (2,493 / 2,500 correct predictions) with only 7 misclassifications across the entire test set.
 * **Dataset**: **100% AudioMNIST** (Scaled Multi-Speaker Train/Val Split, 5 Unseen Speakers Holdout Test Set).
 
 ---
@@ -120,7 +120,7 @@ This project documents the step-by-step engineering progression from a naive spe
 | **v3.0** | 60% FSDD / 40% AudioMNIST | 8 kHz | **73.2%** | **61.80%** | ![v3.0 Curves](models_data/model_v3/curve_v3.png) |
 | **v3.1** | 60% FSDD / 40% AudioMNIST (+ GPU Aug) | 8 kHz | **82.5%** | **78.40%** | ![v3.1 Curves](models_data/model_v3.1/curve_v3.1.png) |
 | **v3.2** | 60% FSDD / 40% AudioMNIST (+ 3-Ch Deltas) | 8 kHz | **82.4%** | **85.00%** | ![v3.2 Curves](models_data/model_v3.2/curve_v3.2.png) |
-| **v4.0** | 100% AudioMNIST (16 kHz High-Res) | 16 kHz | **93.5%** | **99.72%** | ![v4.0 CM](models_data/model_v4/curve_v4.png) |
+| **v4.0** | 100% AudioMNIST (16 kHz High-Res) | 16 kHz | **99.92%** | **99.82%** | ![v4.0 Curves](models_data/model_v4/curve_v4.png) |
 
 ## 📊 Model Progression Benchmark
 
@@ -137,7 +137,7 @@ To evaluate true out-of-distribution generalization, all historical model checkp
 | **v3.0** | AudioMNIST Expansion (60/40) | 8 kHz | 1-Ch Log-Mel | **75.9%** |
 | **v3.1** | GPU-Accelerated Augmentations | 8 kHz | 1-Ch Log-Mel | **89.5%** |
 | **v3.2** | 3-Channel Spectrograms | 8 kHz | 3-Ch (Log-Mel + Deltas) | **95.4%** |
-| **v4.0** | High-Res AudioMNIST | 16 kHz | 3-Ch (Log-Mel + Deltas) | **99.8%** |
+| **v4.0** | High-Res AudioMNIST | 16 kHz | 3-Ch (Log-Mel + Deltas) | **99.82%** |
 
 ### 🔑 Key Takeaways & Progression Analysis
 
@@ -155,9 +155,10 @@ To evaluate true out-of-distribution generalization, all historical model checkp
 ├── data/                  # Raw WAV files (FSDD & AudioMNIST) and metadata
 ├── models/                # Versioned PyTorch model checkpoints (.pth)
 ├── models_data/           # History metrics, loss curves, and evaluation outputs
-├── dataset.py             # CPU DataLoader & Audio Dataset reader
-├── model.py               # SpokenDigitCNN PyTorch Architecture
-├── train.py               # GPU-accelerated training pipeline & augmentations
-├── evaluate.py            # Confusion matrix & classification report generator
+├── README.md              # Project documentation
 ├── app.py                 # Gradio Web UI for real-time live testing
-└── README.md              # Project documentation
+├── dataset.py             # CPU DataLoader & Audio Dataset reader
+├── evaluate.py            # Confusion matrix & classification report generator
+├── model.py               # SpokenDigitCNN PyTorch Architecture
+├── requirements.txt       # Python dependencies
+└── train.py               # GPU-accelerated training pipeline & augmentations

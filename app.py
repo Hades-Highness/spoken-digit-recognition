@@ -2,18 +2,18 @@ import os
 import time
 
 import gradio as gr
-import torch
-import numpy as np
 import librosa
 import matplotlib.pyplot as plt
-import torchaudio.transforms as T
+import numpy as np
+import torch
 import torchaudio.functional as F_audio
+import torchaudio.transforms as T
 
 from model import SpokenDigitCNN
 
 
 # ============================================================
-# CONFIGURATION ET REGISTRE DES MODÈLES (v4.0 @ 16 kHz)
+# CONFIGURATION & MODEL REGISTRY
 # ============================================================
 
 SAMPLE_RATE = 16000
@@ -31,37 +31,37 @@ current_in_channels = 3
 
 
 def get_available_models():
-    """Liste tous les fichiers de poids disponibles dans la racine ou models/."""
+    """List every checkpoint file in the project root or the models folder."""
     search_dirs = [".", MODELS_DIR]
     files = []
-    
+
     for d in search_dirs:
         if os.path.exists(d):
             for f in os.listdir(d):
                 if f.endswith(".pth") or f.endswith(".pt"):
                     path = os.path.join(d, f) if d != "." else f
                     files.append(path)
-                    
+
     files.sort()
     return files
 
 
 def load_model_by_name(model_path):
-    """Charge un modèle PyTorch à partir de son chemin."""
+    """Load a PyTorch model from a checkpoint file."""
     global current_model, current_model_name, current_in_channels
 
     if not model_path:
         current_model = None
         current_model_name = None
-        return "⚠️ Aucun modèle sélectionné."
+        return "⚠️ No model selected."
 
     if not os.path.exists(model_path):
-        return f"❌ Fichier introuvable : {model_path}"
+        return f"❌ File not found: {model_path}"
 
     try:
         checkpoint = torch.load(model_path, map_location=device)
 
-        # Détection automatique du nombre de canaux d'entrée à partir des poids
+        # Infer the number of input channels from the first conv layer.
         in_channels = 3
         for key, tensor in checkpoint.items():
             if "weight" in key and len(tensor.shape) == 4:
@@ -69,7 +69,9 @@ def load_model_by_name(model_path):
                 break
 
         try:
-            model = SpokenDigitCNN(num_classes=10, in_channels=in_channels).to(device)
+            model = SpokenDigitCNN(
+                num_classes=10, in_channels=in_channels
+            ).to(device)
         except TypeError:
             model = SpokenDigitCNN(num_classes=10).to(device)
 
@@ -80,20 +82,22 @@ def load_model_by_name(model_path):
         current_model_name = model_path
         current_in_channels = in_channels
 
-        return f"✅ Modèle '{os.path.basename(model_path)}' chargé ({in_channels} canaux) sur {device}."
+        return (
+            f"✅ Model '{os.path.basename(model_path)}' loaded "
+            f"({in_channels} channels) on {device}."
+        )
 
     except Exception as e:
         current_model = None
         current_model_name = None
-        return f"❌ Erreur lors du chargement : {str(e)}"
+        return f"❌ Error while loading: {str(e)}"
 
 
 # ============================================================
-# PREPROCESSING v4.0 (16 kHz / 3 Canaux)
+# PREPROCESSING
 # ============================================================
 
 def preprocess_audio(file_path, in_channels=3):
-    # 1. Chargement et rééchantillonnage à 16 kHz
     waveform, sr = librosa.load(file_path, sr=None, mono=True)
 
     if sr != SAMPLE_RATE:
@@ -101,32 +105,34 @@ def preprocess_audio(file_path, in_channels=3):
 
     waveform = torch.from_numpy(waveform).float()
 
-    # 2. Ajustement de la longueur à 1 seconde (16000 échantillons)
     if waveform.shape[0] < TARGET_LENGTH:
-        waveform = torch.nn.functional.pad(waveform, (0, TARGET_LENGTH - waveform.shape[0]))
+        waveform = torch.nn.functional.pad(
+            waveform, (0, TARGET_LENGTH - waveform.shape[0])
+        )
     else:
         waveform = waveform[:TARGET_LENGTH]
 
-    # 3. Calcul Log-Mel Spectrogram (16kHz, n_fft=1024, hop=256)
     mel_transform = T.MelSpectrogram(
         sample_rate=SAMPLE_RATE,
         n_fft=N_FFT,
         hop_length=HOP_LENGTH,
         n_mels=N_MELS,
     )
-
     mel_spec = mel_transform(waveform.unsqueeze(0))
     log_mel = torch.log(mel_spec + 1e-9)
 
-    # 4. Construction multi-canaux (Log-Mel, Delta, Delta-Delta)
+    # Build the same 3-channel input used in train.py (Log-Mel, Delta, Delta-Delta); 
+    # older single-channel checkpoints only use the log-mel.
     if in_channels == 3:
         delta1 = F_audio.compute_deltas(log_mel)
         delta2 = F_audio.compute_deltas(delta1)
-        feature_tensor = torch.stack([log_mel.squeeze(0), delta1.squeeze(0), delta2.squeeze(0)], dim=0)
+        feature_tensor = torch.stack(
+            [log_mel.squeeze(0), delta1.squeeze(0), delta2.squeeze(0)], dim=0
+        )
     else:
         feature_tensor = log_mel
 
-    # 5. Instance Standardization (exactement comme dans train.py)
+    # Match train.py: per-instance standardization over time and frequency.
     mean = feature_tensor.mean(dim=(-2, -1), keepdim=True)
     std = feature_tensor.std(dim=(-2, -1), keepdim=True)
     feature_tensor = (feature_tensor - mean) / (std + 1e-6)
@@ -135,7 +141,7 @@ def preprocess_audio(file_path, in_channels=3):
 
 
 # ============================================================
-# VISUALISATION
+# VISUALIZATION
 # ============================================================
 
 def create_waveform_plot(waveform):
@@ -153,7 +159,11 @@ def create_waveform_plot(waveform):
 
 
 def create_mel_plot(feature_tensor):
-    mel = feature_tensor[0].numpy() if feature_tensor.dim() == 3 else feature_tensor.squeeze().numpy()
+    mel = (
+        feature_tensor[0].numpy()
+        if feature_tensor.dim() == 3
+        else feature_tensor.squeeze().numpy()
+    )
 
     fig, ax = plt.subplots(figsize=(8, 3))
     image = ax.imshow(mel, aspect="auto", origin="lower", cmap="viridis")
@@ -171,17 +181,25 @@ def create_mel_plot(feature_tensor):
 
 def predict_digit(file_path, selected_model_name):
     if file_path is None:
-        return "Veuillez importer ou enregistrer un fichier audio.", None, None, "Aucun audio", None
+        return (
+            "Please upload or record an audio file.",
+            None,
+            None,
+            "No audio",
+            None,
+        )
 
     if current_model is None or current_model_name != selected_model_name:
         status = load_model_by_name(selected_model_name)
         if current_model is None:
-            return f"Erreur modèle : {status}", None, None, "Erreur", None
+            return f"Model error: {status}", None, None, "Error", None
 
     start_time = time.time()
 
     try:
-        waveform, feature_tensor = preprocess_audio(file_path, in_channels=current_in_channels)
+        waveform, feature_tensor = preprocess_audio(
+            file_path, in_channels=current_in_channels
+        )
 
         waveform_plot = create_waveform_plot(waveform)
         mel_plot = create_mel_plot(feature_tensor)
@@ -196,18 +214,20 @@ def predict_digit(file_path, selected_model_name):
         processing_time = time.time() - start_time
         probs = probabilities[0].cpu().numpy()
 
-        probability_text = "\n".join([f"Chiffre {i}: {probs[i] * 100:.2f}%" for i in range(10)])
+        probability_text = "\n".join(
+            f"Digit {i}: {probs[i] * 100:.2f}%" for i in range(10)
+        )
 
         return (
-            f"Chiffre prédit : {predicted_digit}",
+            f"Predicted digit: {predicted_digit}",
             waveform_plot,
             mel_plot,
             f"{processing_time * 1000:.1f} ms",
-            probability_text
+            probability_text,
         )
 
     except Exception as e:
-        return f"Erreur : {str(e)}", None, None, "Erreur", None
+        return f"Error: {str(e)}", None, None, "Error", None
 
 
 # ============================================================
@@ -217,12 +237,14 @@ def predict_digit(file_path, selected_model_name):
 available_models = get_available_models()
 default_model = available_models[0] if available_models else None
 
-with gr.Blocks(title="Spoken Digit Recognition v4.0", theme=gr.themes.Soft()) as demo:
+with gr.Blocks(title="DigitSense - Spoken Digit Recognition", theme=gr.themes.Soft()) as demo:
 
     gr.Markdown(
         """
-        # 🎙️ Spoken Digit Recognition (v4.0 @ 16 kHz)
-        Sélectionne ton checkpoint `.pth`, enregistre ta voix ou importe un fichier audio pour tester la prédiction.
+        # DigitSense - Spoken Digit Recognition
+
+        Select a `.pth` checkpoint, record your voice, or upload an audio
+        file to test a prediction.
         """
     )
 
@@ -230,36 +252,44 @@ with gr.Blocks(title="Spoken Digit Recognition v4.0", theme=gr.themes.Soft()) as
         model_dropdown = gr.Dropdown(
             choices=available_models,
             value=default_model,
-            label="Sélectionner un checkpoint (.pth)",
-            interactive=True
+            label="Select a Model",
+            interactive=True,
         )
-        refresh_btn = gr.Button("🔄 Rafraîchir", scale=0)
+        refresh_btn = gr.Button("Refresh", scale=0)
 
     model_status = gr.Textbox(
-        value=load_model_by_name(default_model) if default_model else "Aucun fichier .pth trouvé",
-        label="Statut du Modèle",
-        interactive=False
+        value=(
+            load_model_by_name(default_model)
+            if default_model
+            else "No .pth file found"
+        ),
+        label="Model Status",
+        interactive=False,
     )
 
     with gr.Row():
         with gr.Column():
             audio_input = gr.Audio(
-                label="Entrée Audio",
+                label="Audio Input",
                 sources=["upload", "microphone"],
-                type="filepath"
+                type="filepath",
             )
-            predict_button = gr.Button("🔍 Reconnaître le Chiffre", variant="primary")
+            predict_button = gr.Button("Recognize Digit", variant="primary")
 
         with gr.Column():
-            prediction_output = gr.Textbox(label="Résultat", interactive=False)
-            probability_output = gr.Textbox(label="Probabilités par classe", lines=10, interactive=False)
-            processing_time_output = gr.Textbox(label="Temps d'inférence", interactive=False)
+            prediction_output = gr.Textbox(label="Result", interactive=False)
+            probability_output = gr.Textbox(
+                label="Per-class probabilities", lines=10, interactive=False
+            )
+            processing_time_output = gr.Textbox(
+                label="Inference time", interactive=False
+            )
 
-    gr.Markdown("## 📈 Analyse Spectrale")
+    gr.Markdown("## Spectral Analysis")
 
     with gr.Row():
-        waveform_output = gr.Plot(label="Forme d'onde")
-        mel_output = gr.Plot(label="Log Mel-Spectrogramme")
+        waveform_output = gr.Plot(label="Waveform")
+        mel_output = gr.Plot(label="Log Mel-Spectrogram")
 
     def refresh_models():
         models = get_available_models()
@@ -267,13 +297,23 @@ with gr.Blocks(title="Spoken Digit Recognition v4.0", theme=gr.themes.Soft()) as
         status = load_model_by_name(new_default)
         return gr.update(choices=models, value=new_default), status
 
-    refresh_btn.click(fn=refresh_models, inputs=[], outputs=[model_dropdown, model_status])
-    model_dropdown.change(fn=load_model_by_name, inputs=model_dropdown, outputs=model_status)
+    refresh_btn.click(
+        fn=refresh_models, inputs=[], outputs=[model_dropdown, model_status]
+    )
+    model_dropdown.change(
+        fn=load_model_by_name, inputs=model_dropdown, outputs=model_status
+    )
 
     predict_button.click(
         fn=predict_digit,
         inputs=[audio_input, model_dropdown],
-        outputs=[prediction_output, waveform_output, mel_output, processing_time_output, probability_output]
+        outputs=[
+            prediction_output,
+            waveform_output,
+            mel_output,
+            processing_time_output,
+            probability_output,
+        ],
     )
 
 if __name__ == "__main__":

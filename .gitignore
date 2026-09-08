@@ -1,15 +1,15 @@
-# Environnement virtuel
+# Virtual environment
 .venv/
 
-# Cache Python
+# Python cache
 __pycache__/
 *.pyc
 
-# Fichiers de configuration PyCharm
+# PyCharm configuration files
 .idea/
 
-# Dataset téléchargé localement
+# Locally downloaded dataset
 data/
 
-# Fichiers de poids PyTorch
+# PyTorch weight files
 *.pt
