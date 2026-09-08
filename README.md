@@ -1,4 +1,4 @@
-# 🎙️ DigitSense - Spoken Digit Reconigition
+# DigitSense - Spoken Digit Reconigition
 
 
 <p align="center">
