@@ -13,3 +13,6 @@ data/
 
 # PyTorch weight files
 *.pt
+
+# ONNX export
+onnx/

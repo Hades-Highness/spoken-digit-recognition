@@ -1,11 +1,23 @@
 # 🎙️ DigitSense - Spoken Digit Reconigition
 
-Spoken digit recognition pipeline (digits 0–9) evolving from the **FSDD** (*Free Spoken Digit Dataset*) to **AudioMNIST**.  
-This project documents the step-by-step engineering progression from a naive speaker-memorizing baseline to a production-ready, **speaker-independent** CNN architecture achieving **99.72% test accuracy**.
+
+<p align="center">
+  <a href="https://github.com/Hades-Highness/spoken-digit-recognition/releases/latest">
+    <img src="https://img.shields.io/github/v/release/Hades-Highness/spoken-digit-recognition?color=7c3aed&label=Release&style=for-the-badge" alt="Latest Release">
+  </a>
+  <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python Version">
+  <img src="https://img.shields.io/badge/PyTorch-2.0%2B-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch">
+  <img src="https://img.shields.io/badge/Type-Academic%20Project-blue?style=for-the-badge" alt="Academic Project">
+  <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License">
+</p>
 
 ---
 
-## 📐 Audio Technical Specifications (v4.0 Final)
+An end-to-end deep learning pipeline for spoken digit recognition, featuring an 8-stage architectural evolution from baseline 2D CNNs to a high-resolution 16kHz production model reaching **~99.8% accuracy** on strict unseen speaker test benchmarks.
+
+---
+
+## - Audio Technical Specifications (v4.0 Final)
 
 * **Sampling Rate ($f_s$)**: 16,000 Hz (mono)
 * **Normalized Duration**: 1.0 second (16,000 samples)
@@ -22,9 +34,9 @@ This project documents the step-by-step engineering progression from a naive spe
 
 ---
 
-## 📈 Version History & Project Evolution
+## - Version History & Project Evolution
 
-### 🔹 Version 1.0 — Baseline (Random Split | 3,000 Audio Files)
+### ★ Version 1.0 — Baseline (Random Split | 3,000 Audio Files)
 * **Dataset Scope**: Original FSDD dataset (6 speakers $\times$ 500 clips = 3,000 total audio samples).
 * **Data Split**: Naive 80/20 random split mixing all 6 speakers across train and validation sets.
 * **Outcome**: High accuracy (~98%+), but severely **overfitted to speaker identity**. The model memorized specific voice signatures present in both sets instead of learning digit phonemes.
@@ -32,7 +44,7 @@ This project documents the step-by-step engineering progression from a naive spe
 
 ---
 
-### 🔹 Version 2.0 — Speaker-Independent Split (3,000 Audio Files)
+### ★ Version 2.0 — Speaker-Independent Split (3,000 Audio Files)
 * **Goal**: Evaluate true generalization on completely unseen voices.
 * **Strict Speaker Separation**:
   * **Train Set (4 speakers / 2,000 samples)**: `jackson`, `nicolas`, `theo`, `yweweler`
@@ -43,7 +55,7 @@ This project documents the step-by-step engineering progression from a naive spe
 
 ---
 
-### 🔹 Version 2.1 — Data Augmentation (Acoustic Perturbations)
+### ★ Version 2.1 — Data Augmentation (Acoustic Perturbations)
 * **Goal**: Artificially expand acoustic diversity within the 4 training speakers.
 * **Techniques Introduced**:
   * **Additive White Noise**: Low-level Gaussian noise injection ($20\%$ chance).
@@ -53,7 +65,7 @@ This project documents the step-by-step engineering progression from a naive spe
 
 ---
 
-### 🔹 Version 2.2 — Speaker Invariance & Regularization (Accuracy Bottleneck: 57.2%)
+### ★ Version 2.2 — Speaker Invariance & Regularization (Accuracy Bottleneck: 57.2%)
 * **Goal**: Strip speaker identity (timbre/pitch/volume) at the architectural level.
 * **Upgrades Introduced**:
   1. **Per-Sample Instance Standardization**: Zero-mean unit-variance scaling per spectrogram $X_{norm} = \frac{X - \mu}{\sigma + \epsilon}$.
@@ -64,7 +76,7 @@ This project documents the step-by-step engineering progression from a naive spe
 
 ---
 
-### 🔹 Version 3.0 — Dataset Expansion & Gender Balancing (5,000 Audio Files)
+### ★ Version 3.0 — Dataset Expansion & Gender Balancing (5,000 Audio Files)
 * **Goal**: Eliminate the voice-signature bottleneck by scaling training speaker diversity and balancing pitch distributions.
 * **Dataset Augmentation**: Integrated 2,000 audio samples from **4 female speakers** (`12`, `26`, `28`, `47`) from the **AudioMNIST** dataset.
 * **Updated Data Split**:
@@ -75,7 +87,7 @@ This project documents the step-by-step engineering progression from a naive spe
 
 ---
 
-### 🔹 Version 3.1 — CUDA Pipeline & Label Smoothing (Accuracy Jump: 82.5%)
+### ★ Version 3.1 — CUDA Pipeline & Label Smoothing (Accuracy Jump: 82.5%)
 * **Goal**: Offload heavy computational processing to GPU, eliminate speed bottlenecks, and resolve phoneme ambiguity across magnet classes (e.g., '3' and '5').
 * **Upgrades Introduced**:
   1. **CUDA Batch Processing Engine**: Moved Mel-Spectrogram extraction and all acoustic transformations directly onto GPU VRAM inside `train.py`.
@@ -86,7 +98,7 @@ This project documents the step-by-step engineering progression from a naive spe
 
 ---
 
-### 🔹 Version 3.2 — Multi-Channel Derivatives & High-Res Dynamics (Stable Plateau: 82.4% Val / 85.0% Test)
+### ★ Version 3.2 — Multi-Channel Derivatives & High-Res Dynamics (Stable Plateau: 82.4% Val / 85.0% Test)
 * **Goal**: Eliminate phoneme confusion pairs ('1' vs '9', '4' vs '5') by doubling temporal resolution and extracting dynamic velocity/acceleration features.
 * **Upgrades Introduced**:
   1. **Doubled Temporal Resolution (`hop_length = 128`)**: Expanded frame count to ~63 frames to capture sharp consonant attack dynamics (/w/ vs /n/, /f/ vs /v/).
@@ -98,7 +110,7 @@ This project documents the step-by-step engineering progression from a naive spe
 
 ---
 
-### 🔹 Version 4.0 — High-Fidelity 16 kHz Audio & Scaled AudioMNIST (Test Acc: 99.72%)
+### ★ Version 4.0 — High-Fidelity 16 kHz Audio & Scaled AudioMNIST (Test Acc: 99.72%)
 * **Goal**: Unlock state-of-the-art spoken digit recognition by scaling to high-resolution 16 kHz audio and maximizing speaker diversity across full AudioMNIST.
 * **Upgrades Introduced**:
   1. **16 kHz Sampling Rate Pipeline**: Doubled audio sampling rate ($f_s = 16,000$ Hz, `n_fft = 1024`, `hop_length = 256`) to capture crisp high-frequency acoustic details and formant transitions.
@@ -109,7 +121,7 @@ This project documents the step-by-step engineering progression from a naive spe
 
 ---
 
-## 📊 Performance & Progression Summary
+## - Performance & Progression Summary
 
 | Version | Dataset Composition | Sampling Rate | Best Val Acc | Test Acc | Confusion Matrix / Curves |
 | :--- | :--- | :---: | :---: | :---: | :--- |
@@ -122,7 +134,7 @@ This project documents the step-by-step engineering progression from a naive spe
 | **v3.2** | 60% FSDD / 40% AudioMNIST (+ 3-Ch Deltas) | 8 kHz | **82.4%** | **85.00%** | ![v3.2 Curves](models_data/model_v3.2/curve_v3.2.png) |
 | **v4.0** | 100% AudioMNIST (16 kHz High-Res) | 16 kHz | **99.92%** | **99.82%** | ![v4.0 Curves](models_data/model_v4/curve_v4.png) |
 
-## 📊 Model Progression Benchmark
+## - Model Progression Benchmark
 
 To evaluate true out-of-distribution generalization, all historical model checkpoints were benchmarked on a strictly isolated, speaker-independent test set comprising 5 unseen speakers (`01`, `02`, `07`, `03`, `04` — ~2,500 audio samples).
 
@@ -139,7 +151,7 @@ To evaluate true out-of-distribution generalization, all historical model checkp
 | **v3.2** | 3-Channel Spectrograms | 8 kHz | 3-Ch (Log-Mel + Deltas) | **95.4%** |
 | **v4.0** | High-Res AudioMNIST | 16 kHz | 3-Ch (Log-Mel + Deltas) | **99.82%** |
 
-### 🔑 Key Takeaways & Progression Analysis
+### - Key Takeaways & Progression Analysis
 
 * **Domain Shift & Overfitting (v1.0 – v2.2):** Models trained exclusively on small single-speaker datasets (FSDD) struggled to generalize when tested against completely unseen speakers.
 * **Speaker Diversity (v3.0):** Expanding the dataset to include multi-speaker data immediately boosted unseen test performance from **57.1%** to **75.9%**.
@@ -148,7 +160,7 @@ To evaluate true out-of-distribution generalization, all historical model checkp
 
 ---
 
-## 📁 Project Structure
+## - Project Structure
 
 ```text
 .
