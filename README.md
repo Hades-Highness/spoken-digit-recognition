@@ -2,8 +2,8 @@
 
 
 <p align="center">
-  <a href="https://github.com/Hades-Highness/spoken-digit-recognition/releases/latest">
-    <img src="https://img.shields.io/github/v/release/Hades-Highness/spoken-digit-recognition?color=7c3aed&label=Release&style=for-the-badge" alt="Latest Release">
+  <a href="https://github.com/Hades-Highness/spoken-digit-recognition/releases/tag/V4.0.0">
+    <img src="https://img.shields.io/github/v/release/Hades-Highness/spoken-digit-recognition?color=7c3aed&label=Latest Release&style=for-the-badge" alt="Latest Release">
   </a>
   <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python Version">
   <img src="https://img.shields.io/badge/PyTorch-2.0%2B-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch">
