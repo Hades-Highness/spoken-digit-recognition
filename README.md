@@ -109,6 +109,19 @@ This project documents the step-by-step engineering progression from a naive spe
 
 ---
 
+## 📊 Performance & Progression Summary
+
+| Version | Dataset Composition | Sampling Rate | Best Val Acc | Test Acc | Confusion Matrix / Curves |
+| :--- | :--- | :---: | :---: | :---: | :--- |
+| **v1.0** | 100% FSDD (Random Split) | 8 kHz | **98.2%** | **98.40%** | ![v1 Curves](models_data/model_v1/curve_v1.png) |
+| **v2.0** | 100% FSDD (Speaker Split) | 8 kHz | **59.4%** | **66.00%** | ![v2.0 Curves](models_data/model_v2/curve_v2.png) |
+| **v2.1** | 100% FSDD (+ Noise/SpecAug) | 8 kHz | **54.0%** | **65.80%** | ![v2.1 Curves](models_data/model_v2.1/curve_v2.1.png) |
+| **v2.2** | 100% FSDD (+ InstanceNorm) | 8 kHz | **57.2%** | **64.20%** | ![v2.2 Curves](models_data/model_v2.2/curve_v2.2.png) |
+| **v3.0** | 60% FSDD / 40% AudioMNIST | 8 kHz | **73.2%** | **61.80%** | ![v3.0 Curves](models_data/model_v3/curve_v3.png) |
+| **v3.1** | 60% FSDD / 40% AudioMNIST (+ GPU Aug) | 8 kHz | **82.5%** | **78.40%** | ![v3.1 Curves](models_data/model_v3.1/curve_v3.1.png) |
+| **v3.2** | 60% FSDD / 40% AudioMNIST (+ 3-Ch Deltas) | 8 kHz | **82.4%** | **85.00%** | ![v3.2 Curves](models_data/model_v3.2/curve_v3.2.png) |
+| **v4.0** | 100% AudioMNIST (16 kHz High-Res) | 16 kHz | **93.5%** | **99.72%** | ![v4.0 CM](models_data/model_v4/curve_v4.png) |
+
 ## 📊 Model Progression Benchmark
 
 To evaluate true out-of-distribution generalization, all historical model checkpoints were benchmarked on a strictly isolated, speaker-independent test set comprising 5 unseen speakers (`01`, `02`, `07`, `03`, `04` — ~2,500 audio samples).
@@ -132,19 +145,6 @@ To evaluate true out-of-distribution generalization, all historical model checkp
 * **Speaker Diversity (v3.0):** Expanding the dataset to include multi-speaker data immediately boosted unseen test performance from **57.1%** to **75.9%**.
 * **Feature Engineering & Augmentations (v3.1 – v3.2):** Implementing GPU-side dynamic augmentations and 3-channel representations (Log-Mel + Delta + Delta-Delta) increased accuracy by **+19.5%** at 8 kHz.
 * **High-Resolution Audio (v4.0):** Doubling the sampling rate to 16 kHz provided richer acoustic resolution, pushing performance to a peak **99.8%** accuracy.
-
-## 📊 Performance & Progression Summary
-
-| Version | Dataset Composition | Sampling Rate | Best Val Acc | Test Acc | Confusion Matrix / Curves |
-| :--- | :--- | :---: | :---: | :---: | :--- |
-| **v1.0** | 100% FSDD (Random Split) | 8 kHz | **98.2%** | **98.40%** | ![v1 Curves](models_data/model_v1/curve_v1.png) |
-| **v2.0** | 100% FSDD (Speaker Split) | 8 kHz | **59.4%** | **66.00%** | ![v2.0 Curves](models_data/model_v2/curve_v2.png) |
-| **v2.1** | 100% FSDD (+ Noise/SpecAug) | 8 kHz | **54.0%** | **65.80%** | ![v2.1 Curves](models_data/model_v2.1/curve_v2.1.png) |
-| **v2.2** | 100% FSDD (+ InstanceNorm) | 8 kHz | **57.2%** | **64.20%** | ![v2.2 Curves](models_data/model_v2.2/curve_v2.2.png) |
-| **v3.0** | 60% FSDD / 40% AudioMNIST | 8 kHz | **73.2%** | **61.80%** | ![v3.0 Curves](models_data/model_v3/curve_v3.png) |
-| **v3.1** | 60% FSDD / 40% AudioMNIST (+ GPU Aug) | 8 kHz | **82.5%** | **78.40%** | ![v3.1 Curves](models_data/model_v3.1/curve_v3.1.png) |
-| **v3.2** | 60% FSDD / 40% AudioMNIST (+ 3-Ch Deltas) | 8 kHz | **82.4%** | **85.00%** | ![v3.2 Curves](models_data/model_v3.2/curve_v3.2.png) |
-| **v4.0** | 100% AudioMNIST (16 kHz High-Res) | 16 kHz | **93.5%** | **99.72%** | ![v4.0 CM](models_data/model_v4/curve_v4.png) |
 
 ---
 
