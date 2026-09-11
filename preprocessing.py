@@ -7,6 +7,7 @@ constants itself — it just yields raw waveforms now.
 
 import logging
 
+import av
 import librosa
 import noisereduce as nr
 import numpy as np
@@ -47,18 +48,54 @@ def _get_vad_model():
     return _vad_model
 
 
+def _decode_with_av(file_path):
+    """Decode to mono float32 at SAMPLE_RATE via PyAV.
+
+    Browser microphone recordings arrive as WebM/Opus (MediaRecorder does not
+    support audio/wav), which libsndfile cannot open. PyAV ships its own FFmpeg
+    libraries, so this works without a system FFmpeg install.
+    """
+    with av.open(file_path) as container:
+        if not container.streams.audio:
+            raise AudioProcessingError("That file doesn't contain an audio track.")
+
+        resampler = av.AudioResampler(format="flt", layout="mono", rate=SAMPLE_RATE)
+        chunks = []
+        for frame in container.decode(container.streams.audio[0]):
+            for resampled in resampler.resample(frame):
+                chunks.append(resampled.to_ndarray().reshape(-1))
+        for resampled in resampler.resample(None):
+            chunks.append(resampled.to_ndarray().reshape(-1))
+
+    if not chunks:
+        raise AudioProcessingError("The recording is empty.")
+
+    return np.concatenate(chunks).astype(np.float32)
+
+
 def load_audio(file_path):
     """Load a clip as mono float32 at SAMPLE_RATE. Raises AudioProcessingError
     on anything unreadable, silent, or too short to be meaningful speech."""
     try:
         waveform, sr = librosa.load(file_path, sr=SAMPLE_RATE, mono=True)
-    except Exception as exc:
-        # Log the real cause server-side; never echo raw library/OS error text
-        # (which can include filesystem paths) back into the UI.
-        logger.warning("Failed to decode audio file '%s': %s", file_path, exc)
-        raise AudioProcessingError(
-            "Couldn't read that audio file — try a different recording or format."
-        ) from exc
+    except Exception as librosa_exc:
+        # libsndfile rejects browser recording containers (WebM/Opus); fall back
+        # to PyAV before giving up.
+        logger.info(
+            "librosa could not decode '%s' (%s); retrying with PyAV.",
+            file_path, librosa_exc,
+        )
+        try:
+            waveform = _decode_with_av(file_path)
+        except AudioProcessingError:
+            raise
+        except Exception as av_exc:
+            # Log real causes server-side; never echo raw library/OS error text
+            # (which can include filesystem paths) back into the UI.
+            logger.warning("Failed to decode audio file '%s': %s", file_path, av_exc)
+            raise AudioProcessingError(
+                "Couldn't read that audio file — try a different recording or format."
+            ) from av_exc
 
     if waveform.size == 0:
         raise AudioProcessingError("The recording is empty.")

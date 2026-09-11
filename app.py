@@ -9,8 +9,8 @@ import logging
 
 import gradio as gr
 import matplotlib
-import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.figure import Figure
 
 matplotlib.use("Agg")
 
@@ -49,9 +49,20 @@ def _style_axes(ax):
     ax.title.set_color(MIST)
 
 
-def plot_waveform(waveform, sample_rate=16000, segments=None):
-    fig, ax = plt.subplots(figsize=(7, 2.2))
+def _new_figure(figsize):
+    """Build a Figure outside pyplot's global registry.
+
+    Gradio calls these handlers from worker threads, and pyplot figures would
+    accumulate in that registry for the life of the process (2 per request).
+    """
+    fig = Figure(figsize=figsize)
     fig.patch.set_facecolor(INK)
+    return fig
+
+
+def plot_waveform(waveform, sample_rate=16000, segments=None):
+    fig = _new_figure((7, 2.2))
+    ax = fig.subplots()
     time_axis = np.arange(len(waveform)) / sample_rate
 
     ax.plot(time_axis, waveform, color=SIGNAL, linewidth=0.8)
@@ -62,19 +73,19 @@ def plot_waveform(waveform, sample_rate=16000, segments=None):
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Amplitude")
     _style_axes(ax)
-    plt.tight_layout()
+    fig.tight_layout()
     return fig
 
 
 def plot_mel(feature_tensor):
     log_mel = feature_tensor[0].numpy()
-    fig, ax = plt.subplots(figsize=(7, 2.6))
-    fig.patch.set_facecolor(INK)
+    fig = _new_figure((7, 2.6))
+    ax = fig.subplots()
     ax.imshow(log_mel, aspect="auto", origin="lower", cmap="viridis")
     ax.set_xlabel("Time Frames")
     ax.set_ylabel("Mel Bin")
     _style_axes(ax)
-    plt.tight_layout()
+    fig.tight_layout()
     return fig
 
 
