@@ -6,3 +6,6 @@ seaborn
 scikit-learn
 tqdm
 gradio
+onnxruntime
+silero-vad
+noisereduce

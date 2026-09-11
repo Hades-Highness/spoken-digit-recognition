@@ -1,320 +1,334 @@
-import os
-import time
+"""DigitSense — Gradio interface for spoken-digit recognition.
+
+Pulls preprocessing (VAD, denoising, feature extraction) from preprocessing.py
+and model loading/inference from inference.py. See those files for the
+feature-pipeline and ONNX/PyTorch backend details.
+"""
+
+import logging
 
 import gradio as gr
-import librosa
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
-import torch
-import torchaudio.functional as F_audio
-import torchaudio.transforms as T
 
-from model import SpokenDigitCNN
+matplotlib.use("Agg")
 
+from inference import CONFIDENCE_THRESHOLD, MODEL_VERSION_LABEL, InferenceEngine
+from preprocessing import AudioProcessingError, prepare_multi, prepare_single
 
-# ============================================================
-# CONFIGURATION & MODEL REGISTRY
-# ============================================================
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-SAMPLE_RATE = 16000
-TARGET_LENGTH = 16000
-N_MELS = 64
-N_FFT = 1024
-HOP_LENGTH = 256
-MODELS_DIR = "models"
+MODE_SINGLE = "Single Digit"
+MODE_MULTI = "Multi-Digit"
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# --- Palette (see design plan) -----------------------------------------------
+INK = "#12141C"
+PANEL = "#1B1E29"
+SIGNAL = "#5EEAD4"
+EMBER = "#F5A65B"
+ALERT = "#EF6461"
+MIST = "#9AA0B4"
 
-current_model = None
-current_model_name = None
-current_in_channels = 3
+engine = InferenceEngine()
 
 
-def get_available_models():
-    """List every checkpoint file in the project root or the models folder."""
-    search_dirs = [".", MODELS_DIR]
-    files = []
+# ==============================================================================
+# Plotting
+# ==============================================================================
 
-    for d in search_dirs:
-        if os.path.exists(d):
-            for f in os.listdir(d):
-                if f.endswith(".pth") or f.endswith(".pt"):
-                    path = os.path.join(d, f) if d != "." else f
-                    files.append(path)
-
-    files.sort()
-    return files
-
-
-def load_model_by_name(model_path):
-    """Load a PyTorch model from a checkpoint file."""
-    global current_model, current_model_name, current_in_channels
-
-    if not model_path:
-        current_model = None
-        current_model_name = None
-        return "⚠️ No model selected."
-
-    if not os.path.exists(model_path):
-        return f"❌ File not found: {model_path}"
-
-    try:
-        checkpoint = torch.load(model_path, map_location=device)
-
-        # Infer the number of input channels from the first conv layer.
-        in_channels = 3
-        for key, tensor in checkpoint.items():
-            if "weight" in key and len(tensor.shape) == 4:
-                in_channels = tensor.shape[1]
-                break
-
-        try:
-            model = SpokenDigitCNN(
-                num_classes=10, in_channels=in_channels
-            ).to(device)
-        except TypeError:
-            model = SpokenDigitCNN(num_classes=10).to(device)
-
-        model.load_state_dict(checkpoint)
-        model.eval()
-
-        current_model = model
-        current_model_name = model_path
-        current_in_channels = in_channels
-
-        return (
-            f"✅ Model '{os.path.basename(model_path)}' loaded "
-            f"({in_channels} channels) on {device}."
-        )
-
-    except Exception as e:
-        current_model = None
-        current_model_name = None
-        return f"❌ Error while loading: {str(e)}"
+def _style_axes(ax):
+    ax.set_facecolor(PANEL)
+    ax.tick_params(colors=MIST, labelsize=8)
+    for spine in ax.spines.values():
+        spine.set_color(MIST)
+        spine.set_alpha(0.3)
+    ax.xaxis.label.set_color(MIST)
+    ax.yaxis.label.set_color(MIST)
+    ax.title.set_color(MIST)
 
 
-# ============================================================
-# PREPROCESSING
-# ============================================================
+def plot_waveform(waveform, sample_rate=16000, segments=None):
+    fig, ax = plt.subplots(figsize=(7, 2.2))
+    fig.patch.set_facecolor(INK)
+    time_axis = np.arange(len(waveform)) / sample_rate
 
-def preprocess_audio(file_path, in_channels=3):
-    waveform, sr = librosa.load(file_path, sr=None, mono=True)
+    ax.plot(time_axis, waveform, color=SIGNAL, linewidth=0.8)
+    if segments:
+        for start, end in segments:
+            ax.axvspan(start / sample_rate, end / sample_rate, color=EMBER, alpha=0.15)
 
-    if sr != SAMPLE_RATE:
-        waveform = librosa.resample(waveform, orig_sr=sr, target_sr=SAMPLE_RATE)
-
-    waveform = torch.from_numpy(waveform).float()
-
-    if waveform.shape[0] < TARGET_LENGTH:
-        waveform = torch.nn.functional.pad(
-            waveform, (0, TARGET_LENGTH - waveform.shape[0])
-        )
-    else:
-        waveform = waveform[:TARGET_LENGTH]
-
-    mel_transform = T.MelSpectrogram(
-        sample_rate=SAMPLE_RATE,
-        n_fft=N_FFT,
-        hop_length=HOP_LENGTH,
-        n_mels=N_MELS,
-    )
-    mel_spec = mel_transform(waveform.unsqueeze(0))
-    log_mel = torch.log(mel_spec + 1e-9)
-
-    # Build the same 3-channel input used in train.py (Log-Mel, Delta, Delta-Delta); 
-    # older single-channel checkpoints only use the log-mel.
-    if in_channels == 3:
-        delta1 = F_audio.compute_deltas(log_mel)
-        delta2 = F_audio.compute_deltas(delta1)
-        feature_tensor = torch.stack(
-            [log_mel.squeeze(0), delta1.squeeze(0), delta2.squeeze(0)], dim=0
-        )
-    else:
-        feature_tensor = log_mel
-
-    # Match train.py: per-instance standardization over time and frequency.
-    mean = feature_tensor.mean(dim=(-2, -1), keepdim=True)
-    std = feature_tensor.std(dim=(-2, -1), keepdim=True)
-    feature_tensor = (feature_tensor - mean) / (std + 1e-6)
-
-    return waveform, feature_tensor
-
-
-# ============================================================
-# VISUALIZATION
-# ============================================================
-
-def create_waveform_plot(waveform):
-    waveform = waveform.numpy()
-    time_axis = np.arange(len(waveform)) / SAMPLE_RATE
-
-    fig, ax = plt.subplots(figsize=(8, 2.5))
-    ax.plot(time_axis, waveform, color="#1f77b4")
-    ax.set_title("Audio Waveform (16 kHz)")
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Amplitude")
-    ax.grid(True, linestyle="--", alpha=0.5)
+    _style_axes(ax)
     plt.tight_layout()
     return fig
 
 
-def create_mel_plot(feature_tensor):
-    mel = (
-        feature_tensor[0].numpy()
-        if feature_tensor.dim() == 3
-        else feature_tensor.squeeze().numpy()
-    )
-
-    fig, ax = plt.subplots(figsize=(8, 3))
-    image = ax.imshow(mel, aspect="auto", origin="lower", cmap="viridis")
-    ax.set_title("Log Mel-Spectrogram (Channel 0)")
+def plot_mel(feature_tensor):
+    log_mel = feature_tensor[0].numpy()
+    fig, ax = plt.subplots(figsize=(7, 2.6))
+    fig.patch.set_facecolor(INK)
+    ax.imshow(log_mel, aspect="auto", origin="lower", cmap="viridis")
     ax.set_xlabel("Time Frames")
-    ax.set_ylabel("Mel Frequency")
-    fig.colorbar(image, ax=ax)
+    ax.set_ylabel("Mel Bin")
+    _style_axes(ax)
     plt.tight_layout()
     return fig
 
 
-# ============================================================
-# PREDICTION
-# ============================================================
+# ==============================================================================
+# Result rendering (HTML built only from numeric model output — no user text)
+# ==============================================================================
 
-def predict_digit(file_path, selected_model_name):
-    if file_path is None:
-        return (
-            "Please upload or record an audio file.",
-            None,
-            None,
-            "No audio",
-            None,
+def _confidence_color(confidence):
+    if confidence >= CONFIDENCE_THRESHOLD:
+        return SIGNAL if confidence >= 0.85 else EMBER
+    return ALERT
+
+
+def render_single_result(digit, confidence):
+    accepted = confidence >= CONFIDENCE_THRESHOLD
+    color = _confidence_color(confidence)
+    pct = confidence * 100
+
+    if accepted:
+        digit_html = f'<div class="digit-display" style="color:{SIGNAL}">{digit}</div>'
+    else:
+        digit_html = (
+            f'<div class="reject-message" style="color:{ALERT}">'
+            "Didn't catch that clearly — try again a little closer to the mic."
+            "</div>"
         )
 
-    if current_model is None or current_model_name != selected_model_name:
-        status = load_model_by_name(selected_model_name)
-        if current_model is None:
-            return f"Model error: {status}", None, None, "Error", None
+    bar_html = (
+        '<div class="confidence-track">'
+        f'<div class="confidence-fill" style="width:{pct:.1f}%; background:{color}"></div>'
+        "</div>"
+        f'<div class="confidence-label" style="color:{MIST}">'
+        f"confidence {pct:.1f}% &middot; threshold {CONFIDENCE_THRESHOLD * 100:.0f}%</div>"
+    )
+    return digit_html + bar_html
 
-    start_time = time.time()
+
+def render_multi_result(results):
+    """results: list of (digit, confidence) tuples, one per detected burst."""
+    chips = []
+    for digit, confidence in results:
+        color = _confidence_color(confidence)
+        if confidence >= CONFIDENCE_THRESHOLD:
+            chips.append(f'<span class="digit-chip" style="color:{color}">{digit}</span>')
+        else:
+            chips.append(f'<span class="digit-chip" style="color:{ALERT}">?</span>')
+
+    joined = f' <span style="color:{MIST}">-</span> '.join(chips)
+    avg_conf = sum(c for _, c in results) / len(results) * 100
+
+    return (
+        f'<div class="digit-display digit-display--multi">{joined}</div>'
+        f'<div class="confidence-label" style="color:{MIST}">'
+        f"{len(results)} digit(s) detected &middot; avg confidence {avg_conf:.1f}%</div>"
+    )
+
+
+def render_error(message):
+    return f'<div class="reject-message" style="color:{ALERT}">{message}</div>'
+
+
+# ==============================================================================
+# Prediction handlers
+# ==============================================================================
+
+def predict(file_path, mode):
+    empty_plot = None
+
+    if file_path is None:
+        return render_error("Record or upload an audio clip first."), empty_plot, empty_plot, ""
+
+    if not engine.is_ready:
+        return render_error(engine.status_message), empty_plot, empty_plot, ""
 
     try:
-        waveform, feature_tensor = preprocess_audio(
-            file_path, in_channels=current_in_channels
-        )
+        if mode == MODE_MULTI:
+            waveform, segments, feature_list = prepare_multi(file_path)
 
-        waveform_plot = create_waveform_plot(waveform)
-        mel_plot = create_mel_plot(feature_tensor)
+            results = [engine.predict(f)[:2] for f in feature_list]
+            result_html = render_multi_result(results)
 
-        input_tensor = feature_tensor.unsqueeze(0).to(device)
+            waveform_plot = plot_waveform(waveform, segments=segments)
+            mel_plot = plot_mel(feature_list[0])
+            probs_text = "\n".join(
+                f"Segment {i + 1}: digit {d} ({c * 100:.1f}%)"
+                for i, (d, c) in enumerate(results)
+            )
+        else:
+            waveform, segments, feature_tensor = prepare_single(file_path)
+            digit, confidence, probs = engine.predict(feature_tensor)
+            result_html = render_single_result(digit, confidence)
 
-        with torch.no_grad():
-            outputs = current_model(input_tensor)
-            probabilities = torch.softmax(outputs, dim=1)
-            predicted_digit = torch.argmax(probabilities, dim=1).item()
+            waveform_plot = plot_waveform(waveform, segments=segments)
+            mel_plot = plot_mel(feature_tensor)
+            probs_text = "\n".join(f"Digit {i}: {probs[i] * 100:.2f}%" for i in range(10))
 
-        processing_time = time.time() - start_time
-        probs = probabilities[0].cpu().numpy()
+        return result_html, waveform_plot, mel_plot, probs_text
 
-        probability_text = "\n".join(
-            f"Digit {i}: {probs[i] * 100:.2f}%" for i in range(10)
-        )
-
+    except AudioProcessingError as exc:
+        logger.info("Audio rejected: %s", exc)
+        return render_error(str(exc)), empty_plot, empty_plot, ""
+    except Exception as exc:
+        logger.exception("Unexpected error during prediction")
         return (
-            f"Predicted digit: {predicted_digit}",
-            waveform_plot,
-            mel_plot,
-            f"{processing_time * 1000:.1f} ms",
-            probability_text,
+            render_error("Something went wrong processing that clip. Please try a different recording."),
+            empty_plot,
+            empty_plot,
+            "",
         )
 
-    except Exception as e:
-        return f"Error: {str(e)}", None, None, "Error", None
+
+# ==============================================================================
+# Theme
+# ==============================================================================
+
+theme = gr.themes.Base(
+    primary_hue=gr.themes.colors.teal,
+    neutral_hue=gr.themes.colors.slate,
+    font=[gr.themes.GoogleFont("Inter"), "sans-serif"],
+    font_mono=[gr.themes.GoogleFont("Space Mono"), "monospace"],
+).set(
+    body_background_fill=INK,
+    background_fill_primary=PANEL,
+    background_fill_secondary=INK,
+    block_background_fill=PANEL,
+    block_border_color=MIST,
+    block_label_text_color=MIST,
+    body_text_color=MIST,
+    body_text_color_subdued=MIST,
+    button_primary_background_fill=SIGNAL,
+    button_primary_background_fill_hover=SIGNAL,
+    button_primary_text_color=INK,
+    border_color_primary=MIST,
+    input_background_fill=INK,
+)
+
+CUSTOM_CSS = f"""
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap');
+
+.app-header h1 {{
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    margin-bottom: 0;
+}}
+
+.version-badge {{
+    display: inline-block;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.75rem;
+    color: {MIST};
+    border: 1px solid {MIST};
+    border-radius: 4px;
+    padding: 2px 8px;
+    opacity: 0.8;
+}}
+
+.digit-display {{
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 4.5rem;
+    text-align: center;
+    line-height: 1.1;
+    padding: 0.5rem 0 0.25rem 0;
+}}
+
+.digit-display--multi {{
+    font-size: 3rem;
+}}
+
+.digit-chip {{
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+}}
+
+.reject-message {{
+    font-family: 'Inter', sans-serif;
+    font-size: 1.1rem;
+    text-align: center;
+    padding: 1.5rem 0;
+}}
+
+.confidence-track {{
+    width: 100%;
+    height: 6px;
+    background: {INK};
+    border-radius: 3px;
+    overflow: hidden;
+    margin-top: 0.25rem;
+}}
+
+.confidence-fill {{
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}}
+
+.confidence-label {{
+    font-family: 'Space Mono', monospace;
+    font-size: 0.75rem;
+    text-align: center;
+    margin-top: 0.4rem;
+}}
+"""
 
 
-# ============================================================
-# GRADIO INTERFACE
-# ============================================================
+# ==============================================================================
+# Interface
+# ==============================================================================
 
-available_models = get_available_models()
-default_model = available_models[0] if available_models else None
+with gr.Blocks(title="DigitSense") as demo:
+    with gr.Row(elem_classes=["app-header"]):
+        with gr.Column():
+            gr.Markdown("# DigitSense")
+            gr.Markdown("Spoken digit recognition")
+        with gr.Column(scale=0, min_width=140):
+            gr.HTML(f'<div class="version-badge">{MODEL_VERSION_LABEL}</div>')
 
-with gr.Blocks(title="DigitSense - Spoken Digit Recognition", theme=gr.themes.Soft()) as demo:
-
-    gr.Markdown(
-        """
-        # DigitSense - Spoken Digit Recognition
-
-        Select a `.pth` checkpoint, record your voice, or upload an audio
-        file to test a prediction.
-        """
-    )
-
-    with gr.Row():
-        model_dropdown = gr.Dropdown(
-            choices=available_models,
-            value=default_model,
-            label="Select a Model",
-            interactive=True,
-        )
-        refresh_btn = gr.Button("Refresh", scale=0)
-
-    model_status = gr.Textbox(
-        value=(
-            load_model_by_name(default_model)
-            if default_model
-            else "No .pth file found"
-        ),
-        label="Model Status",
-        interactive=False,
-    )
+    if not engine.is_ready:
+        gr.HTML(render_error(engine.status_message))
+    else:
+        gr.HTML(f'<div class="confidence-label" style="color:{MIST}">{engine.status_message}</div>')
 
     with gr.Row():
         with gr.Column():
+            mode_selector = gr.Radio(
+                choices=[MODE_SINGLE, MODE_MULTI],
+                value=MODE_SINGLE,
+                label="Mode",
+            )
             audio_input = gr.Audio(
-                label="Audio Input",
-                sources=["upload", "microphone"],
+                label="Record or upload",
+                sources=["microphone", "upload"],
                 type="filepath",
             )
-            predict_button = gr.Button("Recognize Digit", variant="primary")
+            predict_button = gr.Button("Recognize", variant="primary")
 
         with gr.Column():
-            prediction_output = gr.Textbox(label="Result", interactive=False)
-            probability_output = gr.Textbox(
-                label="Per-class probabilities", lines=10, interactive=False
-            )
-            processing_time_output = gr.Textbox(
-                label="Inference time", interactive=False
+            result_display = gr.HTML(
+                f'<div class="reject-message" style="color:{MIST}">'
+                "Record or upload a clip, then press Recognize."
+                "</div>"
             )
 
-    gr.Markdown("## Spectral Analysis")
-
-    with gr.Row():
-        waveform_output = gr.Plot(label="Waveform")
-        mel_output = gr.Plot(label="Log Mel-Spectrogram")
-
-    def refresh_models():
-        models = get_available_models()
-        new_default = models[0] if models else None
-        status = load_model_by_name(new_default)
-        return gr.update(choices=models, value=new_default), status
-
-    refresh_btn.click(
-        fn=refresh_models, inputs=[], outputs=[model_dropdown, model_status]
-    )
-    model_dropdown.change(
-        fn=load_model_by_name, inputs=model_dropdown, outputs=model_status
-    )
+    with gr.Accordion("Details", open=False):
+        with gr.Row():
+            waveform_output = gr.Plot(label="Waveform")
+            mel_output = gr.Plot(label="Log Mel-Spectrogram")
+        probs_output = gr.Textbox(label="Per-digit / per-segment detail", lines=10, interactive=False)
 
     predict_button.click(
-        fn=predict_digit,
-        inputs=[audio_input, model_dropdown],
-        outputs=[
-            prediction_output,
-            waveform_output,
-            mel_output,
-            processing_time_output,
-            probability_output,
-        ],
+        fn=predict,
+        inputs=[audio_input, mode_selector],
+        outputs=[result_display, waveform_output, mel_output, probs_output],
     )
 
 if __name__ == "__main__":
-    demo.launch()
+    demo.launch(theme=theme, css=CUSTOM_CSS)
