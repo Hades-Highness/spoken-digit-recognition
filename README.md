@@ -33,6 +33,14 @@ An end-to-end deep learning pipeline for spoken digit recognition, featuring an 
 
 ---
 
+## - Note on Model Versions & Source Code
+
+The current repository source code and the interactive web interface **(app.py)** are optimized **exclusively** for **DigitSense v4.0** (16 kHz, 3-channel Log-Mel + Deltas, achieving 99.82% accuracy).
+
+Model artifacts **(.pth and .onnx)** for previous iterations **(v1.0 through v3.2)** are available in the **GitHub Releases** for historical auditing, ablation studies, and comparative benchmarking.
+
+---
+
 ## - Version History & Project Evolution
 
 ### ★ Version 1.0 — Baseline (Random Split | 3,000 Audio Files)

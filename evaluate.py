@@ -1,3 +1,5 @@
+import os
+
 import matplotlib.pyplot as plt
 import seaborn as sns
 import torch
@@ -79,7 +81,14 @@ def evaluate_version(model_path, version_label):
 
 
 if __name__ == "__main__":
-    model_file = "best_model_v4.0.pth"
     version_tag = "v4.0"
+
+    # Shipped checkpoints live in models/ (same convention as inference.py);
+    # keep the root-level training filename as a fallback for local runs.
+    candidates = [
+        f"models/digitsense_{version_tag}.pth",
+        f"best_model_{version_tag}.pth",
+    ]
+    model_file = next((p for p in candidates if os.path.exists(p)), candidates[0])
 
     evaluate_version(model_file, version_tag)

@@ -16,3 +16,4 @@ data/
 
 # ONNX export
 onnx/
+export_all_to_onnx.py
