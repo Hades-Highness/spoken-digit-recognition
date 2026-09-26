@@ -1,8 +1,8 @@
 """Model loading and prediction for DigitSense.
 
-Tries ONNX Runtime first (models/onnx/*.onnx), falls back to the PyTorch
-checkpoint (models/*.pth) if no ONNX file exists or the ONNX graph turns out
-to be incompatible with the real feature shape.
+Tries ONNX Runtime first (onnx/*.onnx), falls back to the PyTorch checkpoint
+(models/*.pth) if no ONNX file exists or the ONNX graph turns out to be
+incompatible with the real feature shape.
 """
 
 import glob
@@ -71,9 +71,10 @@ class InferenceEngine:
 
         self.backend = None
         self.status_message = (
-            "No trained model found — waiting on teammate. "
-            f"Expected a checkpoint at '{PTH_DIR}/{PTH_PATTERN}' or "
-            f"'{ONNX_DIR}/{ONNX_PATTERN}'."
+            "No model file found. Expected a checkpoint at "
+            f"'{PTH_DIR}/{PTH_PATTERN}' or an ONNX export at "
+            f"'{ONNX_DIR}/{ONNX_PATTERN}'. Download the v4.0 checkpoint from the "
+            "V4.0.0 release, or train one with 'python train.py'."
         )
         logger.error(self.status_message)
 

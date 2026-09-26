@@ -1,18 +1,41 @@
+"""GPU-accelerated training pipeline for DigitSense v4.0 (16 kHz, 3-channel)."""
+
 import json
+import os
+import random
 
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torchaudio.functional as FA
 import torchaudio.transforms as T
 
-from dataset import test_loader, train_loader, val_loader
+from dataset import SEED, test_loader, train_loader, val_loader
 from model import SpokenDigitCNN
 
 VERSION_NAME = "v4.0"
 EPOCHS = 35
 LR = 0.001
+WEIGHT_DECAY = 1e-4
+LABEL_SMOOTHING = 0.1
+
+# Checkpoints are written where inference.py and evaluate.py look for them.
+CHECKPOINT_DIR = "models"
+
+
+def set_seed(seed=SEED):
+    """Seed every RNG that affects training.
+
+    Full bitwise determinism on CUDA additionally requires
+    torch.use_deterministic_algorithms(True) and a fixed
+    CUBLAS_WORKSPACE_CONFIG; this covers the usual sources of run-to-run drift.
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
 
 def get_gpu_transforms(device):
@@ -128,12 +151,16 @@ def validate(model, dataloader, criterion, device, transforms):
     return running_loss / total, (correct / total) * 100
 
 
-def save_training_history(version_name, train_accs, val_accs, train_losses, val_losses):
+def save_training_history(
+    version_name, train_accs, val_accs, train_losses, val_losses, config=None
+):
+    """Write the metric history plus the configuration that produced it."""
     history = {
         "train_acc": train_accs,
         "val_acc": val_accs,
         "train_loss": train_losses,
         "val_loss": val_losses,
+        "config": config or {},
     }
     with open(f"history_{version_name}.json", "w") as f:
         json.dump(history, f, indent=4)
@@ -174,14 +201,19 @@ def run_training(
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"--- Training version [{version_name}] on: {device} ---")
 
+    set_seed()
+
     transforms = get_gpu_transforms(device)
     model = SpokenDigitCNN(num_classes=10).to(device)
 
-    criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
+    criterion = nn.CrossEntropyLoss(label_smoothing=LABEL_SMOOTHING)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=WEIGHT_DECAY)
 
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
     best_val_acc = 0.0
+
+    os.makedirs(CHECKPOINT_DIR, exist_ok=True)
+    model_filename = os.path.join(CHECKPOINT_DIR, f"digitsense_{version_name}.pth")
 
     train_accs, val_accs = [], []
     train_losses, val_losses = [], []
@@ -210,7 +242,6 @@ def run_training(
 
         if val_acc > best_val_acc:
             best_val_acc = val_acc
-            model_filename = f"best_model_{version_name}.pth"
             torch.save(model.state_dict(), model_filename)
             print(
                 f"   -> Model saved to: {model_filename} "
@@ -219,12 +250,22 @@ def run_training(
 
     print("\nTraining completed successfully!")
     save_training_history(
-        version_name, train_accs, val_accs, train_losses, val_losses
+        version_name, train_accs, val_accs, train_losses, val_losses,
+        config={
+            "version": version_name,
+            "seed": SEED,
+            "epochs": epochs,
+            "lr": lr,
+            "weight_decay": WEIGHT_DECAY,
+            "label_smoothing": LABEL_SMOOTHING,
+            "batch_size": getattr(train_loader, "batch_size", None),
+            "best_val_acc": round(best_val_acc, 2),
+        },
     )
 
     # Final evaluation on the fully unseen test speakers.
     print("\n--- TEST SET EVALUATION (5 Isolated Speakers) ---")
-    model.load_state_dict(torch.load(f"best_model_{version_name}.pth"))
+    model.load_state_dict(torch.load(model_filename, map_location=device))
     test_loss, test_acc = validate(
         model, test_loader, criterion, device, transforms
     )
