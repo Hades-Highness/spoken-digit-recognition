@@ -1,0 +1,31 @@
+{
+  "name": "digitsense-web",
+  "version": "4.1.0",
+  "private": true,
+  "scripts": {
+    "postinstall": "node scripts/copy-ort-runtime.mjs",
+    "predev": "node scripts/copy-ort-runtime.mjs",
+    "dev": "next dev",
+    "prebuild": "node scripts/copy-ort-runtime.mjs",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "framer-motion": "^14.6.0",
+    "next": "16.4.2",
+    "onnxruntime-web": "^1.30.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/turbopack": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.2",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
