@@ -10,15 +10,30 @@
 </p>
 
 <p align="center">
+  <a href="#project-status">Project status</a> ·
   <a href="#quickstart">Quickstart</a> ·
   <a href="#results">Results</a> ·
   <a href="#model-cards">Model cards</a> ·
   <a href="#training">Training</a> ·
   <a href="#evaluation">Evaluation</a> ·
   <a href="#web-app">Web app</a> ·
+  <a href="#roadmap">Roadmap</a> ·
   <a href="#datasets">Datasets</a> ·
   <a href="#citation">Citation</a>
 </p>
+
+---
+
+## Project Status
+
+The v4.1 web interface is currently implemented in the `web/` directory. The underlying machine
+learning model is being refactored for full web compatibility (raw audio input). The official v5.0
+release will integrate the new web-native model.
+
+The v4.1 interface is an independent frontend update, not a model release, and there is no v4.1
+release tag. The existing Python and Gradio models, v1.0 through v4.0, remain the functional
+machine-learning baselines. Their preprocessing pipelines are not yet compatible with the web
+application's raw-audio inference path.
 
 ---
 
@@ -338,10 +353,11 @@ Inference details worth knowing:
 - If no usable model file is found, the UI shows an explicit error banner naming the expected
   checkpoint path instead of failing silently.
 
-The separate [`web/`](web/README.md) Next.js client targets ONNX Runtime Web
-with raw 16 kHz audio and WASM inference. Its required v4.1 ONNX export is
-pending: v4.0 still needs the Python noise-reduction, VAD, and log-mel feature
-pipeline, which the browser client intentionally does not reproduce.
+The separate [`web/`](web/README.md) Next.js client is the implemented v4.1 web interface. It
+targets ONNX Runtime Web with raw 16 kHz audio and WASM inference, but the existing v1.0-v4.0
+models require Python-side preprocessing and are not compatible with that inference path. The web
+interface is therefore independent of those model checkpoints while the model is refactored for
+the official v5.0 release.
 
 ---
 
@@ -406,10 +422,11 @@ PyTorch or ONNX.
 
 ## Roadmap
 
+- [ ] Retrain `SpokenDigitCNN` for v5.0 to accept raw 16 kHz audio directly, eliminating Python-side
+      preprocessing and enabling low-latency ONNX Runtime WebAssembly inference.
 - [ ] Re-run v4.0 with the seed in place and record the true configuration and epoch count, then
       update `history_v4.json` and the [v4.0 model card](model_cards/model_card_v4.0.md).
 - [ ] Commit the benchmark script and its CSV/JSON output, and settle the holdout speaker list.
-- [ ] Commit the ONNX export script (currently git-ignored).
 - [ ] Add a screenshot or short GIF of the web interface to the README and to
       [Web app](#web-app).
 - [ ] Add a smoke-test suite and a CI workflow (lint, `python model.py`, one training batch).
