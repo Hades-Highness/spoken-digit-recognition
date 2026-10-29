@@ -109,8 +109,8 @@ of each change from the effect of the test set:
 
 ## Model cards
 
-Each version has a model card documenting its configuration, its full classification report, its
-training curves, its confusion matrix, and the caveats that apply to its numbers.
+Each version has a model card documenting its configuration, evaluation artifacts when available,
+and the caveats that apply to its numbers.
 
 | Version | Card | Focus |
 | :--- | :--- | :--- |
@@ -122,8 +122,9 @@ training curves, its confusion matrix, and the caveats that apply to its numbers
 | v3.1 | [model_card_v3.1.md](model_cards/model_card_v3.1.md) | Augmentation that works once the data supports it |
 | v3.2 | [model_card_v3.2.md](model_cards/model_card_v3.2.md) | Dynamic features and temporal resolution |
 | v4.0 | [model_card_v4.0.md](model_cards/model_card_v4.0.md) | **Current release**: 16 kHz, 50/5/5 speaker split |
+| v4.1 | [MODEL_CARD_v4.1.md](model_cards/MODEL_CARD_v4.1.md) | Browser/WASM interface; raw-audio export pending |
 
-Each card links back to the four artifacts in `models_data/model_v<version>/`: `report_v*.txt`
+Cards with completed training link back to the four artifacts in `models_data/model_v<version>/`: `report_v*.txt`
 (per-class precision / recall / F1), `history_v*.json` (per-epoch accuracy and loss), `curve_v*.png`
 and `cm_v*.png`.
 
@@ -336,6 +337,11 @@ Inference details worth knowing:
 - Silent or unreadable clips are rejected before reaching the model.
 - If no usable model file is found, the UI shows an explicit error banner naming the expected
   checkpoint path instead of failing silently.
+
+The separate [`web/`](web/README.md) Next.js client targets ONNX Runtime Web
+with raw 16 kHz audio and WASM inference. Its required v4.1 ONNX export is
+pending: v4.0 still needs the Python noise-reduction, VAD, and log-mel feature
+pipeline, which the browser client intentionally does not reproduce.
 
 ---
 
