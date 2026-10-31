@@ -26,23 +26,23 @@
 
 ## Project Status
 
-The v4.1 web interface is currently implemented in the `web/` directory. The underlying machine
-learning model is being refactored for full web compatibility (raw audio input). The official v5.0
-release will integrate the new web-native model.
+The v4.1 web interface is currently implemented in the `web/` directory. DigitSense v5.0 adds a
+raw-audio PyTorch model and an ONNX export path for browser/WASM inference. The v4.0 model and
+Gradio interface remain available as historical baselines.
 
 The v4.1 interface is an independent frontend update, not a model release, and there is no v4.1
-release tag. The existing Python and Gradio models, v1.0 through v4.0, remain the functional
-machine-learning baselines. Their preprocessing pipelines are not yet compatible with the web
-application's raw-audio inference path.
+release tag. The v1.0 through v4.0 checkpoints remain historical baselines. DigitSense v5.0 is the
+raw-audio model for the web application's inference path; the existing Gradio interface continues
+to use the v4.0 checkpoint and its preprocessing pipeline.
 
 ---
 
 ## Overview
 
 DigitSense is an end-to-end spoken digit recognition project: raw audio in, a digit (0–9) and a
-confidence score out. It ships as a small PyTorch CNN (`SpokenDigitCNN`, ≈156 K parameters)
-trained on 3-channel log-mel features, a Gradio interface for live microphone testing, and a
-versioned record of how the model evolved across eight iterations.
+confidence score out. The v5.0 PyTorch CNN (`SpokenDigitCNN`) accepts raw one-second audio and
+computes Log-Mel, delta, and delta-delta features inside the model. The project also retains its
+v4.0 Gradio interface and versioned training history.
 
 The current model (**v4.0**) reaches **99.72 % accuracy — 2,493 of 2,500 clips — on a
 speaker-independent test set of five speakers absent from training**, with 7 misclassifications
@@ -259,8 +259,10 @@ matches the 63-frame feature tensor, and falls back to the PyTorch checkpoint ot
 
 ### 1. Get the data
 
-Download **AudioMNIST** and arrange it so `dataset.py` finds `data/<speaker_id>/*.wav` with file
-names of the form `<digit>_<speaker_id>_<index>.wav`:
+The loader uses **AudioMNIST** at `data/<speaker_id>/*.wav` with file names of the form
+`<digit>_<speaker_id>_<index>.wav`. If no WAV files are found, it downloads and extracts the
+official archive using `aria2c`. Install `aria2c` before training if the data is not already present
+(for example, `apt-get install aria2` in Colab/Linux or `choco install aria2` on Windows).
 
 ```text
 data/
@@ -270,9 +272,11 @@ data/
 └── …
 ```
 
-Source recordings are 48 kHz; `dataset.py` reads each file's rate and resamples to 16 kHz on load.
-`dataset.py` builds the split from `TEST_SPEAKERS` / `VAL_SPEAKERS` (5 + 5 of the 60 speakers; the
-remaining 50 are training speakers) and raises `FileNotFoundError` if `data/*/*.wav` is empty.
+All clips are decoded, converted to mono, resampled to 16 kHz, padded or truncated to one second,
+RMS-normalized, and cached in memory. The speaker split uses `TEST_SPEAKERS` / `VAL_SPEAKERS`
+(5 + 5 of the 60 speakers; the remaining 50 speakers are training speakers). Training-only speech
+interference is sampled from the training split, while white and low-pass-filtered noise are
+generated on the fly. No validation or test recordings are used as augmentation sources.
 
 ```bash
 python dataset.py     # prints the train / val / test sample counts
@@ -286,30 +290,30 @@ python train.py
 
 | Setting | Value (in `train.py`) |
 | :--- | :--- |
-| Epochs | 35 |
-| Optimizer | Adam, lr `1e-3`, weight decay `1e-4` |
+| Epochs | 30 |
+| Optimizer | AdamW, lr `1e-3`, weight decay `1e-4` |
 | Schedule | `CosineAnnealingLR(T_max=epochs)` |
 | Loss | `CrossEntropyLoss(label_smoothing=0.1)` |
 | Batch size | 64 |
 | Seed | 42 (Python, NumPy, PyTorch, CUDA) |
-| Feature extraction | On GPU, inside the training loop |
-| Checkpoint selection | Best validation accuracy → `models/digitsense_v4.0.pth` |
-| Outputs | `models/digitsense_v4.0.pth`, `curve_v4.0.png`, `history_v4.0.json` |
+| Feature extraction | Differentiable Log-Mel + delta + delta-delta layers in the model |
+| Checkpoint selection | Best validation accuracy → `models/digitsense_v5.0.pth` |
+| Outputs | `models/digitsense_v5.0.pth`, `curve_v5.0.png`, `history_v5.0.json` |
 
-The history JSON also records the configuration that produced it, under a `config` key.
+The history JSON also records the configuration that produced it, under a `config` key. On CUDA,
+training uses mixed precision and cuDNN benchmarking. The cosine schedule reaches its minimum
+learning rate at the end of the 30th epoch.
 
 ### 3. Augmentations (training only, applied on GPU)
 
 | Augmentation | Probability | Range |
 | :--- | :--- | :--- |
-| Pitch shift | 30 % | ±2 semitones |
-| Circular time shift | 30 % | ±1,600 samples (±100 ms) |
-| Additive white noise | 20 % | $\sigma = 0.005$ |
-| SpecAugment | 30 % of batches | `FrequencyMasking(10)`, `TimeMasking(12)` |
+| Overlapping training speech | 65 % | 0.25–0.80 relative waveform gain |
+| Generated background noise | 75 % | 0.01–0.12 relative waveform gain |
 
-Validation and test use the same feature pipeline without augmentations. Because augmentations and
-label smoothing apply only to training batches, **training accuracy is expected to sit below
-validation accuracy** — this is visible in `curve_v4.png` and is not a sign of underfitting.
+Validation and test are evaluated on clean normalized waveforms. The raw-audio model performs
+feature extraction internally, so training, evaluation, and browser inference use the same
+Log-Mel/delta/delta-delta implementation.
 
 ---
 
@@ -325,8 +329,8 @@ python evaluate.py --version v4.0 --split val
 confusion matrix, 300 dpi) and `report_<version>.txt` (per-class precision / recall / F1 and overall
 accuracy) into `--out-dir`.
 
-> `evaluate.py` reproduces the **v4.0** feature recipe (16 kHz, 3-channel), which is the only one
-> the current `model.py` can consume — it expects 3 input channels. Checkpoints v1.0–v3.1 were
+> `evaluate.py` reproduces the **v4.0** feature recipe (16 kHz, 3-channel) with the retained
+> `LegacySpokenDigitCNN`. The v5.0 `SpokenDigitCNN` accepts raw audio. Checkpoints v1.0–v3.1 were
 > trained on 1-channel log-mel, so re-evaluating them requires restoring their model definition and
 > their 8 kHz feature pipeline first.
 
@@ -343,7 +347,9 @@ accuracy) into `--out-dir`.
 
 Both modes show the waveform (with VAD spans highlighted) and the log-mel spectrogram of the
 processed input, plus the per-digit or per-segment probabilities. Predictions below the confidence
-threshold (0.60) are rejected with a retry prompt instead of being displayed as a digit.
+threshold (0.60) are rejected with a retry prompt instead of being displayed as a digit. The
+current Gradio interface continues to load the v4.0 feature-input checkpoint; the v5.0 raw-audio
+model is exported separately for the web client.
 
 Inference details worth knowing:
 
@@ -353,11 +359,9 @@ Inference details worth knowing:
 - If no usable model file is found, the UI shows an explicit error banner naming the expected
   checkpoint path instead of failing silently.
 
-The separate [`web/`](web/README.md) Next.js client is the implemented v4.1 web interface. It
-targets ONNX Runtime Web with raw 16 kHz audio and WASM inference, but the existing v1.0-v4.0
-models require Python-side preprocessing and are not compatible with that inference path. The web
-interface is therefore independent of those model checkpoints while the model is refactored for
-the official v5.0 release.
+The separate [`web/`](web/README.md) Next.js client is the v4.1 web interface. It targets ONNX
+Runtime Web with raw 16 kHz audio and WASM inference. Export the v5.0 model using the instructions
+below to provide its raw-audio ONNX model.
 
 ---
 
@@ -374,6 +378,19 @@ This exists because the model is small enough that CPU-only ONNX inference is co
 while training remains PyTorch. The shape check prevents a stale export from silently producing
 wrong predictions.
 
+The v5.0 model accepts raw `[batch, 16000]` audio and embeds its feature extraction in the ONNX
+graph. Train it and export the full-precision and dynamically quantized INT8 graphs with:
+
+```bash
+python train.py
+python export_web_onnx.py
+```
+
+The exporter writes `onnx/digitsense_v5.0.onnx` and
+`onnx/digitsense_v5.0.int8.onnx` at opset 17. Both accept mono, normalized 16 kHz audio as
+`float32`; the batch dimension is dynamic. The legacy Gradio `inference.py` remains on v4.0 and
+does not load these raw-audio files.
+
 ---
 
 ## Datasets
@@ -383,7 +400,7 @@ wrong predictions.
 | [AudioMNIST](https://github.com/soerenab/AudioMNIST) | 60 | 30,000 | 48 kHz | `data/<speaker_id>/<digit>_<speaker>_<index>.wav` | MIT |
 | [FSDD](https://github.com/Jakobovski/free-spoken-digit-dataset) | 6 | 3,000 | 8 kHz | `{digit}_{speakerName}_{index}.wav` | CC BY-SA 4.0 |
 
-- **v4.0 (the shipped model)** uses AudioMNIST only, with a 50 / 5 / 5 speaker split.
+- **v4.0 and v5.0** use AudioMNIST only, with a 50 / 5 / 5 speaker split.
 - **v1.0 – v3.2** were trained on FSDD and a 60/40 FSDD + AudioMNIST mixture at 8 kHz. Those data
   pipelines are **not** part of this repository any more, so the historical metrics in
   `models_data/` are preserved as records but cannot be regenerated from this code.
@@ -395,25 +412,23 @@ wrong predictions.
 
 ## Reproducibility and limitations
 
-**Reproducible today:** v4.0 training and evaluation from AudioMNIST, and v4.0 inference via
-PyTorch or ONNX.
+**Reproducible today:** v4.0 evaluation/inference and v5.0 raw-audio training/export from
+AudioMNIST.
 
 **Known gaps and limitations:**
 
-- **The shipped v4.0 checkpoint does not match the current `train.py`.** `history_v4.json` records
-  10 epochs; `train.py` is configured for 35. Either the run was stopped early or the configuration
-  changed afterwards. The same mismatch exists for v3.2 (30 recorded epochs).
+- **The v4.0 checkpoint is historical.** The current `train.py` produces a separate v5.0 raw-audio
+  checkpoint; the v4.0 checkpoint remains usable by the legacy Gradio application.
 - **Historical checkpoints are not loadable by the current architecture.** v1.0–v3.1 used 1-channel
   log-mel, while `model.py` builds `Conv2d(in_channels=3, ...)`. Verify with
   `python -c "import torch; print(torch.load('models/digitsense_v1.0.pth')['conv1.0.weight'].shape)"`.
 - **The cross-version benchmark is not reproducible.** It is backed only by an image, and its
   speaker list contradicts `dataset.py` (see [Cross-version benchmark](#cross-version-benchmark)).
-- **The ONNX export script is git-ignored**, so the shipped `.onnx` files cannot be regenerated
-  from the repository.
 - **Metrics are single-run.** Training was unseeded for every version up to v3.2; the patch adding
   a seed to `train.py` does not retroactively make those runs reproducible.
-- Clips are force-fitted to 1.0 s, so utterances longer than one second are truncated, and the
-  silence-trimmed FSDD/AudioMNIST clips are zero-padded when shorter.
+- Clips are force-fitted to 1.0 s, so utterances longer than one second are truncated, and shorter
+  clips are zero-padded. Speech interference uses other training utterances and background noise
+  is synthetic; robustness to real-world noise conditions still needs external evaluation.
 - Scope: single spoken digits (0–9), one utterance per VAD segment, English digit words, close-mic
   recordings. The confidence threshold (0.60) is a fixed heuristic, not a calibrated probability,
   and no explicit noise-robustness training was performed beyond light augmentation.
@@ -422,8 +437,7 @@ PyTorch or ONNX.
 
 ## Roadmap
 
-- [ ] Retrain `SpokenDigitCNN` for v5.0 to accept raw 16 kHz audio directly, eliminating Python-side
-      preprocessing and enabling low-latency ONNX Runtime WebAssembly inference.
+- [x] Add the v5.0 raw-audio model and opset-17 ONNX export path for browser/WASM inference.
 - [ ] Re-run v4.0 with the seed in place and record the true configuration and epoch count, then
       update `history_v4.json` and the [v4.0 model card](model_cards/model_card_v4.0.md).
 - [ ] Commit the benchmark script and its CSV/JSON output, and settle the holdout speaker list.

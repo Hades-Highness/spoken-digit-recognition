@@ -1,4 +1,4 @@
-"""GPU-accelerated training pipeline for DigitSense v4.0 (16 kHz, 3-channel)."""
+"""GPU-accelerated raw-audio training for DigitSense v5.0."""
 
 import json
 import os
@@ -9,271 +9,215 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torchaudio.functional as FA
-import torchaudio.transforms as T
+from tqdm import tqdm
 
-from dataset import SEED, test_loader, train_loader, val_loader
 from model import SpokenDigitCNN
 
-VERSION_NAME = "v4.0"
-EPOCHS = 35
+SEED = 42
+VERSION_NAME = "v5.0"
+EPOCHS = 30
 LR = 0.001
 WEIGHT_DECAY = 1e-4
 LABEL_SMOOTHING = 0.1
-
-# Checkpoints are written where inference.py and evaluate.py look for them.
 CHECKPOINT_DIR = "models"
+SPEECH_MIX_PROBABILITY = 0.65
+NOISE_MIX_PROBABILITY = 0.75
 
 
 def set_seed(seed=SEED):
-    """Seed every RNG that affects training.
-
-    Full bitwise determinism on CUDA additionally requires
-    torch.use_deterministic_algorithms(True) and a fixed
-    CUBLAS_WORKSPACE_CONFIG; this covers the usual sources of run-to-run drift.
-    """
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
 
-def get_gpu_transforms(device):
-    """Build the GPU-resident feature transforms used for 16 kHz input."""
-    # hop_length=256 at 16 kHz yields ~63 time frames.
-    mel_transform = T.MelSpectrogram(
-        sample_rate=16000, n_fft=1024, hop_length=256, n_mels=64
-    ).to(device)
+def mix_training_batch(waveforms, interference):
+    """Mix training utterances with other training speech and colored noise."""
+    batch_size = waveforms.shape[0]
+    device = waveforms.device
+    mixed = waveforms.clone()
 
-    freq_mask = T.FrequencyMasking(freq_mask_param=10).to(device)
-    time_mask = T.TimeMasking(time_mask_param=12).to(device)
+    speech_mask = torch.rand(batch_size, device=device) < SPEECH_MIX_PROBABILITY
+    speech_sir = torch.empty(batch_size, 1, device=device).uniform_(0.25, 0.8)
+    speech = interference * speech_sir
+    mixed = mixed + speech * speech_mask[:, None]
 
-    return mel_transform, freq_mask, time_mask
-
-
-def process_batch_gpu(
-    waveforms, mel_transform, freq_mask, time_mask, device, is_train=True
-):
-    """Convert waveforms [B, 16000] to 3-channel features [B, 3, 64, 63] on GPU."""
-    waveforms = waveforms.to(device)
-
-    if is_train:
-        # 30%: pitch shift within +/-2 semitones
-        if torch.rand(1).item() < 0.30:
-            n_steps = torch.randint(-2, 3, (1,)).item()
-            if n_steps != 0:
-                waveforms = FA.pitch_shift(
-                    waveforms, sample_rate=16000, n_steps=n_steps
-                )
-
-        # 30%: circular time shift of up to +/-100 ms (+/-1,600 samples)
-        if torch.rand(1).item() < 0.30:
-            shift = torch.randint(-1600, 1600, (1,)).item()
-            waveforms = torch.roll(waveforms, shifts=shift, dims=1)
-
-        # 20%: low-amplitude white noise
-        if torch.rand(1).item() < 0.20:
-            waveforms = waveforms + torch.randn_like(waveforms) * 0.005
-
-    # Log-mel (channel 1), delta (channel 2), and delta-delta (channel 3).
-    mel_specs = mel_transform(waveforms)
-    log_mel = torch.log(mel_specs + 1e-9)
-
-    delta = FA.compute_deltas(log_mel)
-    delta_delta = FA.compute_deltas(delta)
-
-    x_3ch = torch.stack([log_mel, delta, delta_delta], dim=1)
-
-    # Instance standardization reduces speaker-dependent gain and offset.
-    mean = x_3ch.mean(dim=(-2, -1), keepdim=True)
-    std = x_3ch.std(dim=(-2, -1), keepdim=True)
-    x_3ch = (x_3ch - mean) / (std + 1e-6)
-
-    # SpecAugment-style masking on 30% of training batches.
-    if is_train and torch.rand(1).item() < 0.30:
-        x_3ch = freq_mask(x_3ch)
-        x_3ch = time_mask(x_3ch)
-
-    return x_3ch
+    noise_mask = torch.rand(batch_size, 1, device=device) < NOISE_MIX_PROBABILITY
+    white_noise = torch.randn_like(mixed)
+    colored_noise = torch.nn.functional.avg_pool1d(
+        white_noise.unsqueeze(1), kernel_size=9, stride=1, padding=4
+    ).squeeze(1)
+    colored_noise = colored_noise / colored_noise.std(dim=1, keepdim=True).clamp_min(1e-6)
+    noise = white_noise * 0.5 + colored_noise * 0.5
+    noise = noise / noise.std(dim=1, keepdim=True).clamp_min(1e-6)
+    noise_snr = torch.empty(batch_size, 1, device=device).uniform_(0.01, 0.12)
+    mixed = mixed + noise * noise_snr * noise_mask
+    return mixed.clamp(-1.0, 1.0)
 
 
-def train_one_epoch(model, dataloader, criterion, optimizer, device, transforms):
+def _autocast(device):
+    return torch.autocast(device_type=device.type, enabled=device.type == "cuda")
+
+
+def train_one_epoch(model, dataloader, criterion, optimizer, scaler, device):
     model.train()
-    mel_transform, freq_mask, time_mask = transforms
-    running_loss = 0.0
-    correct = 0
+    running_loss = torch.zeros((), device=device)
+    correct = torch.zeros((), dtype=torch.long, device=device)
     total = 0
 
-    for waveforms, targets in dataloader:
-        targets = targets.to(device)
-        inputs = process_batch_gpu(
-            waveforms, mel_transform, freq_mask, time_mask,
-            device, is_train=True,
-        )
+    for waveforms, targets, interference in tqdm(dataloader, leave=False):
+        waveforms = waveforms.to(device, non_blocking=True)
+        targets = targets.to(device, non_blocking=True)
+        interference = interference.to(device, non_blocking=True)
+        inputs = mix_training_batch(waveforms, interference)
 
-        optimizer.zero_grad()
-        outputs = model(inputs)
-        loss = criterion(outputs, targets)
-        loss.backward()
-        optimizer.step()
-
-        running_loss += loss.item() * inputs.size(0)
-        _, predicted = outputs.max(1)
-        total += targets.size(0)
-        correct += predicted.eq(targets).sum().item()
-
-    return running_loss / total, (correct / total) * 100
-
-
-def validate(model, dataloader, criterion, device, transforms):
-    model.eval()
-    mel_transform, freq_mask, time_mask = transforms
-    running_loss = 0.0
-    correct = 0
-    total = 0
-
-    with torch.no_grad():
-        for waveforms, targets in dataloader:
-            targets = targets.to(device)
-            inputs = process_batch_gpu(
-                waveforms, mel_transform, freq_mask, time_mask,
-                device, is_train=False,
-            )
-
+        optimizer.zero_grad(set_to_none=True)
+        with _autocast(device):
             outputs = model(inputs)
             loss = criterion(outputs, targets)
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
 
-            running_loss += loss.item() * inputs.size(0)
-            _, predicted = outputs.max(1)
+        running_loss += loss.detach() * targets.size(0)
+        correct += outputs.detach().argmax(dim=1).eq(targets).sum()
+        total += targets.size(0)
+
+    return (running_loss / total).item(), (correct * 100.0 / total).item()
+
+
+def validate(model, dataloader, criterion, device):
+    model.eval()
+    running_loss = torch.zeros((), device=device)
+    correct = torch.zeros((), dtype=torch.long, device=device)
+    total = 0
+
+    with torch.inference_mode():
+        for waveforms, targets in dataloader:
+            waveforms = waveforms.to(device, non_blocking=True)
+            targets = targets.to(device, non_blocking=True)
+            with _autocast(device):
+                outputs = model(waveforms)
+                loss = criterion(outputs, targets)
+            running_loss += loss * targets.size(0)
+            correct += outputs.argmax(dim=1).eq(targets).sum()
             total += targets.size(0)
-            correct += predicted.eq(targets).sum().item()
 
-    return running_loss / total, (correct / total) * 100
+    return (running_loss / total).item(), (correct * 100.0 / total).item()
 
 
-def save_training_history(
-    version_name, train_accs, val_accs, train_losses, val_losses, config=None
-):
-    """Write the metric history plus the configuration that produced it."""
+def save_training_history(version_name, train_accs, val_accs, train_losses, val_losses, config):
     history = {
         "train_acc": train_accs,
         "val_acc": val_accs,
         "train_loss": train_losses,
         "val_loss": val_losses,
-        "config": config or {},
+        "config": config,
     }
-    with open(f"history_{version_name}.json", "w") as f:
-        json.dump(history, f, indent=4)
+    with open(f"history_{version_name}.json", "w", encoding="utf-8") as file:
+        json.dump(history, file, indent=2)
 
     epochs = range(1, len(train_accs) + 1)
     plt.figure(figsize=(12, 4))
-
     plt.subplot(1, 2, 1)
-    plt.plot(epochs, train_accs, label="Train Acc", color="blue")
-    plt.plot(epochs, val_accs, label="Val Acc", color="orange")
+    plt.plot(epochs, train_accs, label="Train accuracy")
+    plt.plot(epochs, val_accs, label="Validation accuracy")
     plt.title(f"Accuracy - {version_name}")
-    plt.xlabel("Epochs")
+    plt.xlabel("Epoch")
     plt.ylabel("Accuracy (%)")
     plt.legend()
     plt.grid(True)
 
     plt.subplot(1, 2, 2)
-    plt.plot(epochs, train_losses, label="Train Loss", color="blue")
-    plt.plot(epochs, val_losses, label="Val Loss", color="orange")
+    plt.plot(epochs, train_losses, label="Train loss")
+    plt.plot(epochs, val_losses, label="Validation loss")
     plt.title(f"Loss - {version_name}")
-    plt.xlabel("Epochs")
+    plt.xlabel("Epoch")
     plt.ylabel("Loss")
     plt.legend()
     plt.grid(True)
-
     plt.tight_layout()
-    plt.savefig(f"curve_{version_name}.png", dpi=300)
-    print(
-        f"\n[+] Results saved: curve_{version_name}.png and "
-        f"history_{version_name}.json"
-    )
+    curve_path = f"curve_{version_name}.png"
+    plt.savefig(curve_path, dpi=300)
+    plt.close()
+    print(f"Training history saved to history_{version_name}.json and {curve_path}.")
 
 
 def run_training(
-    train_loader, val_loader, test_loader,
-    version_name="v4.0_final", epochs=35, lr=0.001,
+    train_loader,
+    val_loader,
+    test_loader,
+    version_name=VERSION_NAME,
+    epochs=EPOCHS,
+    lr=LR,
 ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"--- Training version [{version_name}] on: {device} ---")
-
+    print(f"Training DigitSense {version_name} on {device}.")
     set_seed()
+    if device.type == "cuda":
+        torch.backends.cudnn.benchmark = True
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
 
-    transforms = get_gpu_transforms(device)
     model = SpokenDigitCNN(num_classes=10).to(device)
-
     criterion = nn.CrossEntropyLoss(label_smoothing=LABEL_SMOOTHING)
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=WEIGHT_DECAY)
-
+    optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=WEIGHT_DECAY)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
-    best_val_acc = 0.0
+    scaler = torch.amp.GradScaler("cuda", enabled=device.type == "cuda")
 
     os.makedirs(CHECKPOINT_DIR, exist_ok=True)
     model_filename = os.path.join(CHECKPOINT_DIR, f"digitsense_{version_name}.pth")
-
-    train_accs, val_accs = [], []
-    train_losses, val_losses = [], []
+    train_accs, val_accs, train_losses, val_losses = [], [], [], []
+    best_val_acc = -1.0
 
     for epoch in range(1, epochs + 1):
         train_loss, train_acc = train_one_epoch(
-            model, train_loader, criterion, optimizer, device, transforms
+            model, train_loader, criterion, optimizer, scaler, device
         )
-        val_loss, val_acc = validate(
-            model, val_loader, criterion, device, transforms
-        )
-
+        val_loss, val_acc = validate(model, val_loader, criterion, device)
         scheduler.step()
 
         train_losses.append(train_loss)
         train_accs.append(train_acc)
         val_losses.append(val_loss)
         val_accs.append(val_acc)
-
-        current_lr = scheduler.get_last_lr()[0]
         print(
-            f"Epoch [{epoch}/{epochs}] (LR: {current_lr:.6f}) | "
-            f"Train Loss: {train_loss:.4f} - Train Acc: {train_acc:.2f}% | "
-            f"Val Loss: {val_loss:.4f} - Val Acc: {val_acc:.2f}%"
+            f"Epoch {epoch}/{epochs} | LR {scheduler.get_last_lr()[0]:.6g} | "
+            f"Train loss {train_loss:.4f}, accuracy {train_acc:.2f}% | "
+            f"Validation loss {val_loss:.4f}, accuracy {val_acc:.2f}%"
         )
 
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             torch.save(model.state_dict(), model_filename)
-            print(
-                f"   -> Model saved to: {model_filename} "
-                f"({best_val_acc:.2f}%)"
-            )
+            print(f"Saved best checkpoint to {model_filename}.")
 
-    print("\nTraining completed successfully!")
     save_training_history(
-        version_name, train_accs, val_accs, train_losses, val_losses,
-        config={
+        version_name,
+        train_accs,
+        val_accs,
+        train_losses,
+        val_losses,
+        {
             "version": version_name,
             "seed": SEED,
             "epochs": epochs,
-            "lr": lr,
+            "learning_rate": lr,
             "weight_decay": WEIGHT_DECAY,
             "label_smoothing": LABEL_SMOOTHING,
             "batch_size": getattr(train_loader, "batch_size", None),
-            "best_val_acc": round(best_val_acc, 2),
+            "best_validation_accuracy": round(best_val_acc, 2),
+            "mixed_speech_probability": SPEECH_MIX_PROBABILITY,
+            "background_noise_probability": NOISE_MIX_PROBABILITY,
         },
     )
 
-    # Final evaluation on the fully unseen test speakers.
-    print("\n--- TEST SET EVALUATION (5 Isolated Speakers) ---")
     model.load_state_dict(torch.load(model_filename, map_location=device))
-    test_loss, test_acc = validate(
-        model, test_loader, criterion, device, transforms
-    )
-    print(f">> TEST ACCURACY : {test_acc:.2f}% (Loss: {test_loss:.4f}) <<")
+    test_loss, test_acc = validate(model, test_loader, criterion, device)
+    print(f"Test accuracy: {test_acc:.2f}% (loss {test_loss:.4f}).")
 
 
 if __name__ == "__main__":
-    run_training(
-        train_loader, val_loader, test_loader,
-        version_name=VERSION_NAME, epochs=EPOCHS, lr=LR,
-    )
+    from dataset import test_loader, train_loader, val_loader
+
+    run_training(train_loader, val_loader, test_loader)

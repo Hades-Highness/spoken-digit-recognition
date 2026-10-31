@@ -7,6 +7,7 @@ scikit-learn
 tqdm
 gradio
 onnxruntime
+onnx
 silero-vad
 noisereduce
 av

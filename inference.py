@@ -12,7 +12,7 @@ import os
 import numpy as np
 import torch
 
-from model import SpokenDigitCNN
+from model import LegacySpokenDigitCNN
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +118,7 @@ class InferenceEngine:
 
     def _try_load_pytorch(self, pth_path):
         try:
-            model = SpokenDigitCNN(num_classes=10).to(self._device)
+            model = LegacySpokenDigitCNN(num_classes=10).to(self._device)
             state_dict = torch.load(pth_path, map_location=self._device)
             model.load_state_dict(state_dict)
             model.eval()

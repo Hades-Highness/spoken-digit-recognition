@@ -1,9 +1,9 @@
-"""Confusion matrix and classification report for a DigitSense checkpoint.
+"""Confusion matrix and classification report for a legacy DigitSense checkpoint.
 
-Reproduces the v4.0 feature recipe (16 kHz, 3-channel log-mel + deltas), which
-is the only recipe the current model.py can consume: it expects 3 input
-channels. Checkpoints v1.0-v3.1 were trained on 1-channel log-mel and cannot be
-evaluated with this script without restoring their model definition.
+Reproduces the v4.0 feature recipe (16 kHz, 3-channel log-mel + deltas) using
+LegacySpokenDigitCNN. The v5.0 SpokenDigitCNN accepts raw audio instead.
+Checkpoints v1.0-v3.1 were trained on 1-channel log-mel and cannot be evaluated
+with this script without restoring their model definition.
 
 Usage:
     python evaluate.py                        # v4.0 on the test split
@@ -20,7 +20,7 @@ import torchaudio.functional as FA
 import torchaudio.transforms as T
 from sklearn.metrics import classification_report, confusion_matrix
 from dataset import SAMPLE_RATE, test_loader, val_loader
-from model import SpokenDigitCNN
+from model import LegacySpokenDigitCNN
 
 
 def evaluate_version(model_path, version_label, loader=None, out_dir="."):
@@ -35,7 +35,7 @@ def evaluate_version(model_path, version_label, loader=None, out_dir="."):
         sample_rate=SAMPLE_RATE, n_fft=1024, hop_length=256, n_mels=64
     ).to(device)
 
-    model = SpokenDigitCNN(num_classes=10).to(device)
+    model = LegacySpokenDigitCNN(num_classes=10).to(device)
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.eval()
 
