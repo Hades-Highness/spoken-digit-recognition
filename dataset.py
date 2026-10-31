@@ -1,29 +1,22 @@
 """In-memory AudioMNIST data pipeline for DigitSense v5.0."""
 
 import glob
-import logging
 import os
 import shutil
 import subprocess
-import zipfile
+import tempfile
 from pathlib import Path
 
 import torch
 import torchaudio
 from torch.utils.data import DataLoader, Dataset
 
-logger = logging.getLogger(__name__)
-
 DATA_DIR = Path("data")
 SAMPLE_RATE = 16000
 TARGET_LENGTH = 16000
 BATCH_SIZE = 64
 SEED = 42
-AUDIOMNIST_URL = (
-    "https://huggingface.co/datasets/sleeping-ai/AudioMNIST/"
-    "resolve/main/AudioMNIST.zip"
-)
-AUDIOMNIST_PAGE = "https://huggingface.co/datasets/sleeping-ai/AudioMNIST"
+AUDIOMNIST_REPOSITORY = "https://github.com/soerenab/AudioMNIST.git"
 
 TEST_SPEAKERS = {"01", "02", "07", "28", "47"}
 VAL_SPEAKERS = {"03", "04", "05", "12", "26"}
@@ -31,41 +24,66 @@ _RESAMPLERS = {}
 
 
 def _download_dataset():
-    """Download and extract AudioMNIST with aria2c when no WAV files exist."""
-    aria2c = shutil.which("aria2c")
-    if aria2c is None:
+    """Clone the official repository and move its audio into the data directory."""
+    git = shutil.which("git")
+    if git is None:
         raise FileNotFoundError(
-            "AudioMNIST WAV files are missing and aria2c is not installed. "
-            f"Install aria2c or download the dataset from {AUDIOMNIST_PAGE} "
-            f"and extract its speaker folders under '{DATA_DIR}'."
+            "AudioMNIST WAV files are missing and Git is not installed. "
+            f"Install Git or clone {AUDIOMNIST_REPOSITORY} and place its data folders "
+            f"under '{DATA_DIR}'."
         )
 
+    print("Dataset not found. Cloning from official GitHub repository...")
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    archive_path = DATA_DIR / ".AudioMNIST.zip"
-    command = [
-        aria2c,
-        "--continue=true",
-        "--max-connection-per-server=8",
-        "--split=8",
-        "--min-split-size=1M",
-        "--dir",
-        str(DATA_DIR),
-        "--out",
-        archive_path.name,
-        AUDIOMNIST_URL,
-    ]
-    logger.info("Downloading AudioMNIST with aria2c.")
-    try:
-        subprocess.run(command, check=True)
-        with zipfile.ZipFile(archive_path) as archive:
-            archive.extractall(DATA_DIR)
-        archive_path.unlink()
-    except (OSError, subprocess.CalledProcessError, zipfile.BadZipFile) as exc:
-        raise RuntimeError(
-            "Unable to download or extract AudioMNIST from the Hugging Face mirror. "
-            f"Check {AUDIOMNIST_PAGE}, then download AudioMNIST.zip and extract its "
-            f"speaker folders under '{DATA_DIR}'. Original error: {exc}"
-        ) from exc
+    with tempfile.TemporaryDirectory(prefix="audiomnist-") as temporary_directory:
+        repository_path = Path(temporary_directory) / "AudioMNIST"
+        try:
+            subprocess.run(
+                [
+                    git,
+                    "clone",
+                    "--depth",
+                    "1",
+                    "--filter=blob:none",
+                    "--sparse",
+                    AUDIOMNIST_REPOSITORY,
+                    str(repository_path),
+                ],
+                check=True,
+            )
+            subprocess.run(
+                [git, "-C", str(repository_path), "sparse-checkout", "set", "data"],
+                check=True,
+            )
+        except (OSError, subprocess.CalledProcessError) as exc:
+            raise RuntimeError(
+                f"Unable to clone AudioMNIST from {AUDIOMNIST_REPOSITORY}: {exc}"
+            ) from exc
+
+        source_data = repository_path / "data"
+        if not source_data.is_dir():
+            raise FileNotFoundError(
+                f"The cloned AudioMNIST repository does not contain '{source_data}'."
+            )
+
+        for speaker_directory in source_data.iterdir():
+            if not speaker_directory.is_dir():
+                continue
+
+            destination_directory = DATA_DIR / speaker_directory.name
+            destination_directory.mkdir(parents=True, exist_ok=True)
+            for source_file in speaker_directory.iterdir():
+                destination_file = destination_directory / source_file.name
+                if not destination_file.exists():
+                    shutil.move(str(source_file), str(destination_file))
+
+        if not any(DATA_DIR.rglob("*.wav")):
+            raise FileNotFoundError(
+                f"No WAV files were found in the cloned repository's data folder. "
+                f"Check {AUDIOMNIST_REPOSITORY} and try again."
+            )
+
+    print("Dataset ready.")
 
 
 def _parse_meta(file_path):
