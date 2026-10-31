@@ -19,7 +19,11 @@ SAMPLE_RATE = 16000
 TARGET_LENGTH = 16000
 BATCH_SIZE = 64
 SEED = 42
-AUDIOMNIST_URL = "https://zenodo.org/records/10519652/files/AudioMNIST.zip"
+AUDIOMNIST_URL = (
+    "https://huggingface.co/datasets/sleeping-ai/AudioMNIST/"
+    "resolve/main/AudioMNIST.zip"
+)
+AUDIOMNIST_PAGE = "https://huggingface.co/datasets/sleeping-ai/AudioMNIST"
 
 TEST_SPEAKERS = {"01", "02", "07", "28", "47"}
 VAL_SPEAKERS = {"03", "04", "05", "12", "26"}
@@ -32,7 +36,8 @@ def _download_dataset():
     if aria2c is None:
         raise FileNotFoundError(
             "AudioMNIST WAV files are missing and aria2c is not installed. "
-            "Install aria2c or place the AudioMNIST speaker folders under data/."
+            f"Install aria2c or download the dataset from {AUDIOMNIST_PAGE} "
+            f"and extract its speaker folders under '{DATA_DIR}'."
         )
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -56,7 +61,11 @@ def _download_dataset():
             archive.extractall(DATA_DIR)
         archive_path.unlink()
     except (OSError, subprocess.CalledProcessError, zipfile.BadZipFile) as exc:
-        raise RuntimeError(f"Unable to download or extract AudioMNIST: {exc}") from exc
+        raise RuntimeError(
+            "Unable to download or extract AudioMNIST from the Hugging Face mirror. "
+            f"Check {AUDIOMNIST_PAGE}, then download AudioMNIST.zip and extract its "
+            f"speaker folders under '{DATA_DIR}'. Original error: {exc}"
+        ) from exc
 
 
 def _parse_meta(file_path):

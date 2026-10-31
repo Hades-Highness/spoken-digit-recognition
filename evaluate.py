@@ -41,7 +41,7 @@ def evaluate_version(model_path, version_label, loader=None, out_dir="."):
 
     all_preds, all_targets = [], []
     with torch.no_grad():
-        for waveforms, targets in loader:
+        for waveforms, targets, *_ in loader:
             waveforms, targets = waveforms.to(device), targets.to(device)
 
             # Reproduce the 3-channel features used during training.

@@ -93,7 +93,7 @@ def validate(model, dataloader, criterion, device):
     total = 0
 
     with torch.inference_mode():
-        for waveforms, targets in dataloader:
+        for waveforms, targets, *_ in dataloader:
             waveforms = waveforms.to(device, non_blocking=True)
             targets = targets.to(device, non_blocking=True)
             with _autocast(device):
